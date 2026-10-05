@@ -427,6 +427,7 @@ app.delete("/api/sponsors/:id", edit, (req, res) => {
 const packageSchema = z.object({
   name: z.string().trim().min(1).max(100),
   benefits: z.array(z.string().trim().min(1).max(300)).max(100),
+  referenceValue: money.optional(),
 });
 app.get("/api/packages", (req, res) =>
   res.json(

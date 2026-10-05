@@ -246,16 +246,85 @@ await test("Persistent sponsor management workflow", async (t) => {
       },
     );
     await t.test(
+      "Persists optional package catalogue prices without changing sponsor finances",
+      async () => {
+        const input = {
+          name: "Catalogue price test package",
+          benefits: ["A benefit supplied by the catalogue"],
+          referenceValue: 125000.25,
+        };
+        const priced = await json("/packages", "POST", input);
+        assert.equal(priced.referenceValue, input.referenceValue);
+        assert.equal(
+          (await json("/packages")).find((p) => p.id === priced.id)
+            .referenceValue,
+          input.referenceValue,
+        );
+        const revised = await json("/packages/" + priced.id, "PUT", {
+          ...input,
+          referenceValue: 250000.5,
+        });
+        assert.equal(revised.referenceValue, 250000.5);
+        for (const invalid of [-1, 1.001, 10000000000, "125000", null]) {
+          for (const [url, method] of [
+            ["/packages", "POST"],
+            ["/packages/" + priced.id, "PUT"],
+          ]) {
+            assert.equal(
+              (
+                await request(url, method, {
+                  ...input,
+                  referenceValue: invalid,
+                })
+              ).status,
+              400,
+              `Rejects invalid catalogue value ${JSON.stringify(invalid)} on ${method}`,
+            );
+          }
+        }
+        assert.equal(
+          (await json("/packages")).find((p) => p.id === priced.id)
+            .referenceValue,
+          revised.referenceValue,
+          "Invalid edits leave the saved catalogue price unchanged.",
+        );
+        const actual = await json("/sponsors", "POST", {
+          ...sponsorInput(),
+          packageId: priced.id,
+        });
+        assert.equal(actual.value, sponsorInput().value);
+        assert.equal(actual.received, 0);
+        assert.equal(actual.outstanding, sponsorInput().value);
+        assert.equal(actual.approval, "Not Approved");
+        assert.equal(actual.poIssued, false);
+        await json("/sponsors/" + actual.id, "DELETE");
+        const withoutPrice = await json("/packages/" + priced.id, "PUT", {
+          name: input.name,
+          benefits: input.benefits,
+        });
+        assert.equal("referenceValue" in withoutPrice, false);
+        assert.equal(
+          "referenceValue" in
+            (await json("/packages")).find((p) => p.id === priced.id),
+          false,
+          "An omitted price remains absent instead of inventing a zero price.",
+        );
+        await json("/packages/" + priced.id, "DELETE");
+      },
+    );
+    await t.test(
       "Creates editable packages and independent sponsor statuses",
       async () => {
         pkg = await json("/packages", "POST", {
           name: "Integration package",
           benefits: ["Integration benefit"],
         });
+        assert.equal("referenceValue" in pkg, false);
         pkg = await json("/packages/" + pkg.id, "PUT", {
           name: "Updated integration package",
           benefits: ["Integration benefit"],
         });
+        assert.equal("referenceValue" in pkg, false);
         s = await json("/sponsors", "POST", {
           ...sponsorInput(),
           packageId: pkg.id,

@@ -65,6 +65,7 @@ export const sponsorSchema = z.object({
 export const packageSchema = z.object({
   name: z.string().trim().min(1).max(100),
   benefits: z.array(z.string().trim().min(1).max(300)).max(300),
+  referenceValue: money.optional(),
 });
 export const userSchema = z.object({
   name: z.string().trim().min(1).max(100),

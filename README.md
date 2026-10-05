@@ -1,6 +1,6 @@
 # MAESTRO — Digital Government Forum
 
-One shared English-only, left-to-right page for viewing and editing sponsor details. The summary table and full sponsor records stay on the page; editing, packages, access and branding open in dialogs. The application starts with **zero sponsors and zero sponsorship packages**. No sponsor names, contact details, payments or documents are seeded.
+One shared English-only, left-to-right page for viewing and editing sponsor details. The summary table and full sponsor records stay on the page; editing, packages, access and branding open in dialogs. The application starts with **zero sponsors**. The Supabase deployment includes the seven packages provided in the user's sponsorship PDF; local SQLite starts without packages. No sponsor names, contact details, payments or documents are seeded.
 
 ## Publish the shared page with GitHub Pages and free Supabase
 
@@ -17,7 +17,7 @@ Without project configuration, Pages shows **Workspace connection required** and
 
 The schema enables RLS on every application table and grants no anonymous/authenticated direct table access. Only the function's service role accesses records after validating the Supabase bearer token, active profile, role and current session on every request. Private attachments use signed links valid for one hour; recipients of a signed link can open it until expiry. Public signup is disabled. Password resets and deactivation revoke sessions immediately. The browser SDK persists authentication sessions; business data and uploaded files are stored in Supabase. Uploads accept up to 10 files of 10 MB each, subject to your plan and provider request limits. Exports are generated in the function, in English with SAR, and include the configured accent and PNG/JPEG logo. PDF and Excel list attachment metadata; they do not embed attachment document contents.
 
-For backups, export sponsor reports and back up the database **and** private storage through Supabase. GitHub source/deployments do not back up live data. The local SQLite data does not automatically migrate to Supabase; no production records were provided or seeded.
+For backups, export sponsor reports and back up the database **and** private storage through Supabase. GitHub source/deployments do not back up live data. The local SQLite data does not automatically migrate to Supabase; no sponsor records were provided or seeded.
 
 For local cloud development, set the two public variables in [.env.example](.env.example). `VITE_BASE_PATH` defaults to `/`; the Pages workflow sets the repository base path. Never use a `service_role` JWT or `sb_secret_` key in any `VITE_` variable.
 
@@ -51,6 +51,12 @@ Approval status, purchase order issuance and payments are independent. Outstandi
 Each attachment can be PNG, JPEG, WebP or PDF, at most 10 MB; a batch contains at most 10 files. Uploads are authenticated and their file signatures are checked. Replacement preserves the attachment's sponsor and section. Deletion requires confirmation in the interface. The browser supplies PDF preview support; files can also be downloaded and viewed externally.
 
 Excel and PDF exports reflect the currently filtered sponsor list, use English headings, and show SAR. Excel includes separate sheets for sponsors, payments, benefits and attachment metadata. PDF includes a summary and each selected sponsor's details. Reports list attachments; they do not embed the document contents.
+
+## Provided sponsorship packages
+
+The user's sponsorship PDF defines Digital Transformation Sponsor, Cybersecurity Sponsor, Artificial Intelligence Sponsor and Cloud Services Sponsor at SAR 2,000,000 each; Gold Partner at SAR 1,000,000; Silver Partner at SAR 750,000; and Exhibition Booth at SAR 500,000. The new versioned migration adds these definitions and their translated benefits to Supabase once. Existing matching names or IDs are preserved; later edits and deletions are not reset on deployment. See [package source and translation notes](docs/package-catalogue.md).
+
+Package names, optional reference values and default benefits can be edited on the shared page. Reference values are catalogue prices. The agreed **Total Sponsorship Value** is entered separately for each sponsor and drives statistics, payments and outstanding balances. Selecting a package copies benefits with the existing replacement confirmation and does not change finances or approval/purchase-order statuses.
 
 ## MAESTRO identity
 

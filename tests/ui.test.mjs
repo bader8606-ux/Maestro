@@ -82,11 +82,18 @@ await test("English LTR dashboard works on desktop, tablet and mobile", async ()
     let dialog = page.getByRole("dialog").last();
     await dialog.getByLabel("Package Name").fill("UI test package");
     await dialog
+      .getByLabel("Package Reference Value", { exact: true })
+      .fill("1000000");
+    await dialog
       .getByRole("textbox", { name: "New default benefit" })
       .fill("UI test benefit");
     await dialog.getByRole("button", { name: "Add", exact: true }).click();
     await dialog.getByRole("button", { name: "Save Package" }).click();
     await page.getByRole("heading", { name: "UI test package" }).waitFor();
+    assert.match(
+      await page.locator(".package-card").innerText(),
+      /1,000,000\.00/,
+    );
     await page
       .getByRole("button", { name: "Close dialog", exact: true })
       .click();

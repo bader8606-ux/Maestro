@@ -57,7 +57,12 @@ type User = {
   role: "admin" | "editor" | "viewer";
   active: boolean;
 };
-type Package = { id: string; name: string; benefits: string[] };
+type Package = {
+  id: string;
+  name: string;
+  benefits: string[];
+  referenceValue?: number;
+};
 type Attachment = {
   id: string;
   sponsorId: string;
@@ -1312,6 +1317,7 @@ function SponsorPanel({
   const [payment, setPayment] = useState({ amount: "", date: "", note: "" }),
     [benefit, setBenefit] = useState("");
   const [editingPayment, setEditingPayment] = useState<string | null>(null);
+  const selectedPackage = packages.find((p) => p.id === draft.packageId);
   const dirty = JSON.stringify(draft) !== baseline,
     paid =
       draft.payments.reduce((a, p) => a + Math.round(p.amount * 100), 0) / 100,
@@ -1521,7 +1527,12 @@ function SponsorPanel({
               <div className="form-grid">
                 <Field
                   label="Sponsorship Package"
-                  hint="Default benefits are copied when a package is selected. Existing benefits are kept unless you confirm replacement."
+                  hint={
+                    "Default benefits are copied when a package is selected. Existing benefits are kept unless you confirm replacement." +
+                    (selectedPackage?.referenceValue !== undefined
+                      ? ` Package reference value: SAR ${money(selectedPackage.referenceValue)}. Enter the agreed amount in Financials.`
+                      : "")
+                  }
                 >
                   <select
                     value={draft.packageId}
@@ -1776,7 +1787,14 @@ function SponsorPanel({
                 <h3>Financial Overview</h3>
                 <p>Currency: SAR · Values are tracked to two decimal places.</p>
               </div>
-              <Field label="Total Sponsorship Value">
+              <Field
+                label="Total Sponsorship Value"
+                hint={
+                  selectedPackage?.referenceValue !== undefined
+                    ? `Package reference value: SAR ${money(selectedPackage.referenceValue)}. Enter the agreed sponsorship amount.`
+                    : "Enter the agreed sponsorship amount."
+                }
+              >
                 <div className="input-prefix">
                   <span>SAR</span>
                   <input
@@ -2385,6 +2403,12 @@ function Packages({
                 )}
               </div>
               <h2>{p.name}</h2>
+              {p.referenceValue !== undefined && (
+                <div className="package-price">
+                  <span>Reference Value · SAR</span>
+                  <strong>{money(p.referenceValue)}</strong>
+                </div>
+              )}
               <span className="muted">
                 {p.benefits.length} package benefits
               </span>
@@ -2458,6 +2482,31 @@ function Packages({
                 value={active.name}
                 onChange={(e) => setActive({ ...active, name: e.target.value })}
               />
+            </Field>
+            <Field
+              label="Package Reference Value"
+              hint="Currency: SAR. Enter the agreed amount separately for each sponsor."
+            >
+              <div className="input-prefix">
+                <span>SAR</span>
+                <input
+                  type="number"
+                  min="0"
+                  max="9999999999"
+                  step="0.01"
+                  value={active.referenceValue ?? ""}
+                  placeholder="Optional catalogue price"
+                  onChange={(e) =>
+                    setActive({
+                      ...active,
+                      referenceValue:
+                        e.target.value === ""
+                          ? undefined
+                          : Number(e.target.value),
+                    })
+                  }
+                />
+              </div>
             </Field>
             <div className="section-title">
               <h3>Default Benefits</h3>
