@@ -1,0 +1,26 @@
+services:
+  maestro:
+    build: .
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      DATA_DIR: /data
+      NODE_ENV: production
+      COOKIE_SECURE: "${COOKIE_SECURE:-false}"
+      APP_ORIGIN: "${APP_ORIGIN:-}"
+    volumes:
+      - maestro-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+volumes:
+  maestro-data:
