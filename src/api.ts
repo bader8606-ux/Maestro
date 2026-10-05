@@ -14,9 +14,17 @@ const cloud = cloudMode
     })
   : null;
 export const attachmentUrl = (
-  a: { id: string; url?: string },
+  a: { id: string; url?: string; createdAt?: string },
   download = false,
-) => a.url || "/api/attachments/" + a.id + (download ? "?download=1" : "");
+) => {
+  if (a.url) return a.url;
+  const query = new URLSearchParams();
+  if (download) query.set("download", "1");
+  // Replacement preserves the ID; a new URL refreshes already loaded images.
+  if (a.createdAt) query.set("v", a.createdAt);
+  const search = query.toString();
+  return "/api/attachments/" + a.id + (search ? "?" + search : "");
+};
 export async function request(
   url: string,
   method = "GET",

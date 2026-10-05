@@ -1317,8 +1317,21 @@ function SponsorPanel({
   const [payment, setPayment] = useState({ amount: "", date: "", note: "" }),
     [benefit, setBenefit] = useState("");
   const [editingPayment, setEditingPayment] = useState<string | null>(null);
+  const [pendingLogo, setPendingLogo] = useState<File | null>(null),
+    [pendingLogoUrl, setPendingLogoUrl] = useState("");
+  const logoInput = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (!pendingLogo) {
+      setPendingLogoUrl("");
+      return;
+    }
+    const url = URL.createObjectURL(pendingLogo);
+    setPendingLogoUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [pendingLogo]);
   const selectedPackage = packages.find((p) => p.id === draft.packageId);
   const dirty = JSON.stringify(draft) !== baseline,
+    unsaved = dirty || Boolean(pendingLogo),
     paid =
       draft.payments.reduce((a, p) => a + Math.round(p.amount * 100), 0) / 100,
     balance = (Math.round(draft.value * 100) - Math.round(paid * 100)) / 100;
@@ -1329,11 +1342,28 @@ function SponsorPanel({
     setBaseline(JSON.stringify(s));
   };
   const closePanel = () => {
+    if (busy) return;
     if (preview) {
       setPreview(null);
       return;
     }
-    if (!dirty || window.confirm("Discard your unsaved changes?")) close();
+    if (!unsaved || window.confirm("Discard your unsaved changes?")) close();
+  };
+  const persistLogo = async (saved: Sponsor, file: File) => {
+    const existingLogo = saved.attachments.find((a) => a.kind === "logo");
+    const form = new FormData();
+    if (existingLogo) form.set("file", file);
+    else {
+      form.set("kind", "logo");
+      form.append("files", file);
+    }
+    return api<Sponsor>(
+      existingLogo
+        ? "/attachments/" + existingLogo.id + "/replace"
+        : "/sponsors/" + saved.id + "/attachments",
+      "POST",
+      form,
+    );
   };
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1341,12 +1371,29 @@ function SponsorPanel({
     setBusy(true);
     setError("");
     try {
-      const s = await api<Sponsor>(
-        draft.id ? "/sponsors/" + draft.id : "/sponsors",
-        draft.id ? "PUT" : "POST",
-        draft,
-      );
-      accept(s);
+      let saved = draft;
+      if (dirty || !draft.id) {
+        saved = await api<Sponsor>(
+          draft.id ? "/sponsors/" + draft.id : "/sponsors",
+          draft.id ? "PUT" : "POST",
+          draft,
+        );
+        accept(saved);
+      }
+      if (pendingLogo) {
+        try {
+          saved = await persistLogo(saved, pendingLogo);
+          accept(saved);
+          setPendingLogo(null);
+        } catch (err) {
+          await changed();
+          throw new Error(
+            "Sponsor saved, but the logo could not be uploaded. " +
+              (err as Error).message +
+              " Your selected logo is ready to retry with Save Changes.",
+          );
+        }
+      }
       notify(
         draft.id
           ? "Sponsor updated successfully."
@@ -1359,6 +1406,24 @@ function SponsorPanel({
     } finally {
       setBusy(false);
     }
+  };
+  const selectLogo = (file: File | undefined) => {
+    if (!file || busy || !editable) return;
+    let message = "";
+    const supported =
+      ["image/png", "image/jpeg", "image/webp"].includes(file.type) ||
+      (!file.type && /\.(png|jpe?g|webp)$/i.test(file.name));
+    if (!supported) message = "Choose a PNG, JPEG or WebP sponsor logo.";
+    else if (!file.size) message = "Choose a logo file that is not empty.";
+    else if (file.size > 10 * 1024 * 1024)
+      message = "Sponsor logos must be 10 MB or smaller.";
+    if (message) {
+      setError(message);
+      notify(message, true);
+      return;
+    }
+    setError("");
+    setPendingLogo(file);
   };
   const mutation = async (url: string, method: string, body?: unknown) => {
     if (dirty) {
@@ -1568,15 +1633,38 @@ function SponsorPanel({
                     ))}
                   </select>
                 </Field>
-                <Field label="Sponsor Logo">
+                <div className="field">
+                  <span>Sponsor Logo</span>
                   <div className="logo-upload">
-                    {logo ? (
+                    {editable ? (
+                      <button
+                        type="button"
+                        className="logo-picker"
+                        aria-label="Choose sponsor logo"
+                        title="Choose sponsor logo"
+                        disabled={busy}
+                        onClick={() => logoInput.current?.click()}
+                      >
+                        {pendingLogoUrl ? (
+                          <img
+                            src={pendingLogoUrl}
+                            alt="Selected sponsor logo"
+                          />
+                        ) : logo ? (
+                          <img src={attachmentUrl(logo)} alt="Sponsor logo" />
+                        ) : (
+                          <Upload size={24} />
+                        )}
+                      </button>
+                    ) : logo ? (
                       <img src={attachmentUrl(logo)} alt="Sponsor logo" />
                     ) : (
                       <Building2 size={26} />
                     )}
                     <div>
-                      {logo ? (
+                      {pendingLogo ? (
+                        <span>{pendingLogo.name}</span>
+                      ) : logo ? (
                         <button
                           type="button"
                           className="text-button"
@@ -1588,44 +1676,64 @@ function SponsorPanel({
                         <span>No logo uploaded</span>
                       )}
                       {editable && (
-                        <label
-                          className={
-                            "text-button upload-label " +
-                            (!draft.id || busy || dirty ? "disabled" : "")
+                        <button
+                          type="button"
+                          className="text-button sponsor-logo-action"
+                          disabled={busy}
+                          aria-label={
+                            logo || pendingLogo
+                              ? "Replace Sponsor Logo"
+                              : "Upload Sponsor Logo"
                           }
+                          onClick={() => logoInput.current?.click()}
                         >
-                          {logo ? "Replace logo" : "Upload logo"}
-                          <input
-                            className="file-input"
-                            type="file"
-                            accept="image/png,image/jpeg,image/webp"
-                            disabled={!draft.id || busy || dirty}
-                            onChange={(e) => {
-                              if (logo) replace(e.target.files?.[0], logo);
-                              else upload(e.target.files, "logo");
-                              e.target.value = "";
-                            }}
-                          />
-                        </label>
+                          <Upload size={15} />
+                          {logo || pendingLogo ? "Replace logo" : "Upload logo"}
+                        </button>
                       )}
                     </div>
-                    {logo && editable && (
-                      <IconButton
-                        icon={Trash2}
-                        label="Delete sponsor logo"
-                        onClick={() => removeAttachment(logo)}
-                        disabled={busy || dirty}
+                    {editable && (
+                      <input
+                        ref={logoInput}
+                        className="file-input"
+                        type="file"
+                        tabIndex={-1}
+                        aria-label="Sponsor logo file"
+                        accept="image/png,image/jpeg,image/webp"
+                        disabled={busy}
+                        onChange={(e) => {
+                          selectLogo(e.target.files?.[0]);
+                          e.target.value = "";
+                        }}
                       />
+                    )}
+                    {pendingLogo && editable ? (
+                      <IconButton
+                        icon={X}
+                        label="Remove selected logo"
+                        onClick={() => setPendingLogo(null)}
+                        disabled={busy}
+                      />
+                    ) : (
+                      logo &&
+                      editable && (
+                        <IconButton
+                          icon={Trash2}
+                          label="Delete sponsor logo"
+                          onClick={() => removeAttachment(logo)}
+                          disabled={busy || dirty}
+                        />
+                      )
                     )}
                   </div>
                   <small>
-                    {!draft.id
-                      ? "Save the sponsor before uploading a logo."
-                      : dirty
-                        ? "Save your changes before uploading."
+                    {pendingLogo
+                      ? "Logo selected. Save the sponsor to upload it."
+                      : editable
+                        ? "PNG, JPEG or WebP · Up to 10 MB. Choose a logo, then save the sponsor."
                         : "PNG, JPEG or WebP · Up to 10 MB"}
                   </small>
-                </Field>
+                </div>
               </div>
               <div className="section-title separated">
                 <h3>Approval & Purchase Order</h3>
@@ -2197,7 +2305,7 @@ function SponsorPanel({
               {timestamp(draft.updatedAt)}
               {draft.updatedAt ? " · Riyadh" : ""}
             </strong>
-            {dirty && <small className="unsaved">Unsaved changes</small>}
+            {unsaved && <small className="unsaved">Unsaved changes</small>}
           </div>
           <div className="detail-footer-actions">
             {editable && draft.id && (
@@ -2228,13 +2336,18 @@ function SponsorPanel({
                 <span>Delete</span>
               </button>
             )}
-            <button type="button" className="secondary" onClick={closePanel}>
+            <button
+              type="button"
+              className="secondary"
+              onClick={closePanel}
+              disabled={busy}
+            >
               {editable ? "Cancel" : "Close"}
             </button>
             {editable && (
               <button
                 className="primary"
-                disabled={busy || (!dirty && !!draft.id)}
+                disabled={busy || (!unsaved && !!draft.id)}
               >
                 {busy ? (
                   <LoaderCircle size={16} className="spin" />

@@ -50,6 +50,8 @@ Approval status, purchase order issuance and payments are independent. Outstandi
 
 Each attachment can be PNG, JPEG, WebP or PDF, at most 10 MB; a batch contains at most 10 files. Uploads are authenticated and their file signatures are checked. Replacement preserves the attachment's sponsor and section. Deletion requires confirmation in the interface. The browser supplies PDF preview support; files can also be downloaded and viewed externally.
 
+Sponsor logos can be selected before creating a sponsor or while editing an existing record. The upload icon and button open the file picker, show a preview, and retain the selected PNG/JPEG/WebP until **Create Sponsor** or **Save Changes** uploads it. Cancelling the edit does not upload the selected file. If sponsor details save but the logo upload fails, an English message explains the partial result and the selected file remains available for retry without creating another sponsor.
+
 Excel and PDF exports reflect the currently filtered sponsor list, use English headings, and show SAR. Excel includes separate sheets for sponsors, payments, benefits and attachment metadata. PDF includes a summary and each selected sponsor's details. Reports list attachments; they do not embed the document contents.
 
 ## Provided sponsorship packages

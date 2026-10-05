@@ -252,6 +252,53 @@ textarea::placeholder {
 .record-fields dd {
   color: #fff;
 }
+.logo-picker {
+  display: grid;
+  place-items: center;
+  flex: 0 0 48px;
+  width: 48px;
+  height: 48px;
+  padding: 5px;
+  color: #c5e6f5;
+  background: #122632;
+  border: 1px solid #414b58;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.logo-picker img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 3px;
+}
+.logo-picker img,
+.sponsor-avatar img {
+  background-color: #858585;
+  background-image: conic-gradient(
+    #929292 25%,
+    #787878 0 50%,
+    #929292 0 75%,
+    #787878 0
+  );
+  background-size: 8px 8px;
+}
+.logo-picker:focus-visible,
+.sponsor-logo-action:focus-visible {
+  outline: 3px solid #8fcee9;
+  outline-offset: 3px;
+}
+.logo-picker:disabled,
+.sponsor-logo-action:disabled {
+  cursor: wait;
+  opacity: 0.5;
+}
+.logo-upload > div {
+  min-width: 0;
+}
+.logo-upload > div > span {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
 .brand-preview {
   background: #000;
   border: 1px solid var(--line);
