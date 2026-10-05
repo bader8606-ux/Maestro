@@ -73,6 +73,8 @@ type Attachment = {
   createdAt: string;
   url?: string;
 };
+type DocumentKind = "approval" | "purchase-order";
+type PendingDocument = { id: string; kind: DocumentKind; file: File };
 type Sponsor = {
   id: string;
   name: string;
@@ -1293,6 +1295,73 @@ function SponsorAvatar({ sponsor }: { sponsor: Sponsor }) {
     </div>
   );
 }
+function PendingAttachmentCard({
+  document,
+  sponsorId,
+  busy,
+  preview,
+  remove,
+}: {
+  document: PendingDocument;
+  sponsorId: string;
+  busy: boolean;
+  preview: (attachment: Attachment) => void;
+  remove: () => void;
+}) {
+  const [url, setUrl] = useState("");
+  useEffect(() => {
+    const objectUrl = URL.createObjectURL(document.file);
+    setUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [document.file]);
+  const { file } = document;
+  const mime =
+    file.type ||
+    (/\.pdf$/i.test(file.name)
+      ? "application/pdf"
+      : /\.png$/i.test(file.name)
+        ? "image/png"
+        : /\.webp$/i.test(file.name)
+          ? "image/webp"
+          : "image/jpeg");
+  const attachment: Attachment = {
+    id: document.id,
+    sponsorId,
+    kind: document.kind,
+    name: file.name,
+    mime,
+    size: file.size,
+    createdAt: "",
+    url,
+  };
+  return (
+    <div className="attachment-card pending-attachment">
+      <button
+        type="button"
+        className="attachment-thumb"
+        aria-label={"Preview selected " + file.name}
+        disabled={!url}
+        onClick={() => preview(attachment)}
+      >
+        {mime.startsWith("image/") && url ? (
+          <img src={url} alt={file.name} />
+        ) : (
+          <FileText size={25} />
+        )}
+      </button>
+      <div className="attachment-info">
+        <strong>{file.name}</strong>
+        <span>{(file.size / 1024).toFixed(0)} KB · Pending upload</span>
+      </div>
+      <IconButton
+        icon={X}
+        label={"Remove selected " + file.name}
+        disabled={busy}
+        onClick={remove}
+      />
+    </div>
+  );
+}
 function SponsorPanel({
   sponsor,
   packages,
@@ -1320,6 +1389,15 @@ function SponsorPanel({
   const [pendingLogo, setPendingLogo] = useState<File | null>(null),
     [pendingLogoUrl, setPendingLogoUrl] = useState("");
   const logoInput = useRef<HTMLInputElement>(null);
+  const [pendingDocuments, setPendingDocuments] = useState<PendingDocument[]>(
+    [],
+  );
+  const documentInputs = useRef<Record<DocumentKind, HTMLInputElement | null>>({
+    approval: null,
+    "purchase-order": null,
+  });
+  const replacementInputs = useRef<Record<string, HTMLInputElement | null>>({});
+  const uncertainUploads = useRef<Partial<Record<DocumentKind, Sponsor>>>({});
   useEffect(() => {
     if (!pendingLogo) {
       setPendingLogoUrl("");
@@ -1331,7 +1409,7 @@ function SponsorPanel({
   }, [pendingLogo]);
   const selectedPackage = packages.find((p) => p.id === draft.packageId);
   const dirty = JSON.stringify(draft) !== baseline,
-    unsaved = dirty || Boolean(pendingLogo),
+    unsaved = dirty || Boolean(pendingLogo) || pendingDocuments.length > 0,
     paid =
       draft.payments.reduce((a, p) => a + Math.round(p.amount * 100), 0) / 100,
     balance = (Math.round(draft.value * 100) - Math.round(paid * 100)) / 100;
@@ -1365,9 +1443,70 @@ function SponsorPanel({
       form,
     );
   };
+  const reconcileDocuments = async (
+    saved: Sponsor,
+    documents: PendingDocument[],
+  ) => {
+    // An upload can commit before its response is lost. Inspect new files before
+    // retrying; content hashes avoid treating a same-name file as this selection.
+    const current = await api<Sponsor>("/sponsors/" + saved.id);
+    const known = new Set(saved.attachments.map((a) => a.id));
+    const candidates = current.attachments.filter((a) => !known.has(a.id));
+    const uploaded = new Set<string>();
+    let verified = true;
+    for (const document of documents) {
+      const names = [
+        document.file.name,
+        document.file.name.replace(/[\r\n\x00-\x1f]/g, "").slice(0, 180),
+        document.file.name.slice(0, 240),
+      ];
+      const matches = candidates.filter(
+        (a) =>
+          a.kind === document.kind &&
+          a.size === document.file.size &&
+          names.includes(a.name),
+      );
+      if (!matches.length) continue;
+      const expected = new Uint8Array(
+        await crypto.subtle.digest(
+          "SHA-256",
+          await document.file.arrayBuffer(),
+        ),
+      );
+      for (const attachment of matches) {
+        try {
+          const response = await fetch(attachmentUrl(attachment));
+          if (!response.ok) {
+            verified = false;
+            continue;
+          }
+          const actual = new Uint8Array(
+            await crypto.subtle.digest("SHA-256", await response.arrayBuffer()),
+          );
+          if (!actual.every((byte, i) => byte === expected[i])) continue;
+          uploaded.add(document.id);
+          candidates.splice(candidates.indexOf(attachment), 1);
+          break;
+        } catch {
+          verified = false;
+          /* Retain selections whose saved contents cannot be verified. */
+        }
+      }
+    }
+    accept(current);
+    setPendingDocuments((remaining) =>
+      remaining.filter((d) => !uploaded.has(d.id)),
+    );
+    return {
+      current,
+      uploaded,
+      verified,
+      complete: uploaded.size === documents.length,
+    };
+  };
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (busy) return;
+    if (busy || !editable) return;
     setBusy(true);
     setError("");
     try {
@@ -1391,6 +1530,60 @@ function SponsorPanel({
             "Sponsor saved, but the logo could not be uploaded. " +
               (err as Error).message +
               " Your selected logo is ready to retry with Save Changes.",
+          );
+        }
+      }
+      for (const kind of ["approval", "purchase-order"] as const) {
+        let documents = pendingDocuments.filter((d) => d.kind === kind);
+        if (!documents.length) continue;
+        const uncertain = uncertainUploads.current[kind];
+        if (uncertain) {
+          try {
+            const reconciled = await reconcileDocuments(uncertain, documents);
+            saved = reconciled.current;
+            if (!reconciled.verified && !reconciled.complete)
+              throw new Error("Saved files are unavailable.");
+            delete uncertainUploads.current[kind];
+            documents = documents.filter((d) => !reconciled.uploaded.has(d.id));
+            if (!documents.length) continue;
+          } catch {
+            throw new Error(
+              "The previous attachment upload could not be verified. Check your connection and use Save Changes again. Your selected files have been kept.",
+            );
+          }
+        }
+        const form = new FormData();
+        form.set("kind", kind);
+        documents.forEach(({ file }) => form.append("files", file));
+        try {
+          saved = await api<Sponsor>(
+            "/sponsors/" + saved.id + "/attachments",
+            "POST",
+            form,
+          );
+          accept(saved);
+          const uploaded = new Set(documents.map((d) => d.id));
+          setPendingDocuments((current) =>
+            current.filter((d) => !uploaded.has(d.id)),
+          );
+        } catch (err) {
+          uncertainUploads.current[kind] = saved;
+          try {
+            const reconciled = await reconcileDocuments(saved, documents);
+            saved = reconciled.current;
+            if (reconciled.verified || reconciled.complete)
+              delete uncertainUploads.current[kind];
+            if (reconciled.complete) continue;
+          } catch {
+            /* Keep the selected files if the workspace cannot be read. */
+          }
+          await changed();
+          throw new Error(
+            "Sponsor saved, but " +
+              (kind === "approval" ? "approval" : "purchase order") +
+              " attachments could not be uploaded. " +
+              (err as Error).message +
+              " Your remaining selected files are ready to retry with Save Changes.",
           );
         }
       }
@@ -1426,7 +1619,8 @@ function SponsorPanel({
     setPendingLogo(file);
   };
   const mutation = async (url: string, method: string, body?: unknown) => {
-    if (dirty) {
+    if (busy || !editable) return;
+    if (unsaved) {
       notify("Save your changes before managing attachments.", true);
       return;
     }
@@ -1441,12 +1635,43 @@ function SponsorPanel({
       setBusy(false);
     }
   };
-  const upload = (files: FileList | null, kind: Attachment["kind"]) => {
-    if (!files?.length) return;
-    const form = new FormData();
-    form.set("kind", kind);
-    Array.from(files).forEach((f) => form.append("files", f));
-    void mutation("/sponsors/" + draft.id + "/attachments", "POST", form);
+  const selectDocuments = (files: FileList | null, kind: DocumentKind) => {
+    if (!files?.length || busy || !editable) return;
+    const selected = Array.from(files);
+    let message = "";
+    if (
+      selected.length + pendingDocuments.filter((d) => d.kind === kind).length >
+      10
+    )
+      message =
+        "Select a maximum of 10 files per attachment section before saving.";
+    for (const file of selected) {
+      if (message) break;
+      const supported =
+        ["image/png", "image/jpeg", "image/webp", "application/pdf"].includes(
+          file.type,
+        ) ||
+        (!file.type && /\.(png|jpe?g|webp|pdf)$/i.test(file.name));
+      if (!supported) message = "Choose PNG, JPEG, WebP or PDF attachments.";
+      else if (!file.size)
+        message = "Choose attachment files that are not empty.";
+      else if (file.size > 10 * 1024 * 1024)
+        message = "Attachments must be 10 MB or smaller.";
+    }
+    if (message) {
+      setError(message);
+      notify(message, true);
+      return;
+    }
+    setError("");
+    setPendingDocuments((current) => [
+      ...current,
+      ...selected.map((file) => ({
+        id: crypto.randomUUID(),
+        kind,
+        file,
+      })),
+    ]);
   };
   const replace = (file: File | undefined, a: Attachment) => {
     if (!file) return;
@@ -1509,28 +1734,36 @@ function SponsorPanel({
         </a>
         {editable && (
           <>
-            <label
-              className={"icon-button " + (busy || dirty ? "disabled" : "")}
+            <button
+              type="button"
+              className="icon-button"
               title="Replace attachment"
+              aria-label={"Replace " + a.name}
+              disabled={busy || unsaved}
+              onClick={() => replacementInputs.current[a.id]?.click()}
             >
               <RefreshCw size={16} />
-              <span className="sr-only">Replace {a.name}</span>
-              <input
-                className="file-input"
-                type="file"
-                accept="image/png,image/jpeg,image/webp,application/pdf"
-                disabled={busy || dirty}
-                onChange={(e) => {
-                  replace(e.target.files?.[0], a);
-                  e.target.value = "";
-                }}
-              />
-            </label>
+            </button>
+            <input
+              ref={(input) => {
+                replacementInputs.current[a.id] = input;
+              }}
+              className="file-input"
+              aria-label={"Replacement file for " + a.name}
+              tabIndex={-1}
+              type="file"
+              accept="image/png,image/jpeg,image/webp,application/pdf"
+              disabled={busy || unsaved}
+              onChange={(e) => {
+                replace(e.target.files?.[0], a);
+                e.target.value = "";
+              }}
+            />
             <IconButton
               icon={Trash2}
               label={"Delete " + a.name}
               onClick={() => removeAttachment(a)}
-              disabled={busy || dirty}
+              disabled={busy || unsaved}
             />
           </>
         )}
@@ -2227,13 +2460,16 @@ function SponsorPanel({
                   upload
                 </p>
               </div>
-              {(!draft.id || dirty) && (
+              {editable && (
                 <div className="info-note">
                   <AlertCircle size={18} />
                   <span>
-                    {!draft.id
-                      ? "Save the sponsor before uploading attachments."
-                      : "Save your changes before uploading, replacing, or deleting attachments."}
+                    Choose files in either section, then use{" "}
+                    {draft.id ? "Save Changes" : "Create Sponsor"} to save them
+                    with this sponsor.
+                    {draft.id &&
+                      unsaved &&
+                      " Save Changes before replacing or deleting saved attachments."}
                   </span>
                 </div>
               )}
@@ -2252,24 +2488,54 @@ function SponsorPanel({
                   {draft.attachments
                     .filter((a) => a.kind === kind)
                     .map(attachmentCard)}
-                  {!draft.attachments.some((a) => a.kind === kind) && (
-                    <div className="quiet-empty">
-                      No {kind === "approval" ? "approval" : "purchase order"}{" "}
-                      attachments.
-                    </div>
-                  )}
+                  {pendingDocuments
+                    .filter((d) => d.kind === kind)
+                    .map((document) => (
+                      <PendingAttachmentCard
+                        key={document.id}
+                        document={document}
+                        sponsorId={draft.id}
+                        busy={busy}
+                        preview={setPreview}
+                        remove={() =>
+                          setPendingDocuments((current) =>
+                            current.filter((d) => d.id !== document.id),
+                          )
+                        }
+                      />
+                    ))}
+                  {!draft.attachments.some((a) => a.kind === kind) &&
+                    !pendingDocuments.some((d) => d.kind === kind) && (
+                      <div className="quiet-empty">
+                        No {kind === "approval" ? "approval" : "purchase order"}{" "}
+                        attachments.
+                      </div>
+                    )}
                   {editable && (
-                    <label
-                      className={
-                        "upload-zone " +
-                        (!draft.id || busy || dirty ? "disabled" : "")
-                      }
-                    >
-                      <Upload size={22} />
-                      <strong>Choose files to upload</strong>
-                      <span>Images or PDF documents</span>
+                    <>
+                      <button
+                        type="button"
+                        className="upload-zone"
+                        aria-label={
+                          "Choose " +
+                          (kind === "approval"
+                            ? "approval"
+                            : "purchase order") +
+                          " attachments"
+                        }
+                        disabled={busy}
+                        onClick={() => documentInputs.current[kind]?.click()}
+                      >
+                        <Upload size={22} />
+                        <strong>Choose files to upload</strong>
+                        <span>Images or PDF documents</span>
+                      </button>
                       <input
+                        ref={(input) => {
+                          documentInputs.current[kind] = input;
+                        }}
                         className="file-input"
+                        tabIndex={-1}
                         aria-label={
                           "Upload " +
                           (kind === "approval"
@@ -2280,13 +2546,13 @@ function SponsorPanel({
                         type="file"
                         accept="image/png,image/jpeg,image/webp,application/pdf"
                         multiple
-                        disabled={!draft.id || busy || dirty}
+                        disabled={busy}
                         onChange={(e) => {
-                          upload(e.target.files, kind);
+                          selectDocuments(e.target.files, kind);
                           e.target.value = "";
                         }}
                       />
-                    </label>
+                    </>
                   )}
                 </section>
               ))}

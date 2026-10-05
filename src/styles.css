@@ -1348,6 +1348,7 @@ input[type="date"] {
   align-items: center;
 }
 .upload-zone {
+  width: 100%;
   cursor: pointer;
   position: relative;
   display: flex;
@@ -1359,6 +1360,17 @@ input[type="date"] {
   padding: 22px;
   background: var(--surface-soft);
   color: var(--muted);
+}
+.upload-zone:focus-visible {
+  outline: 3px solid #8fcee9;
+  outline-offset: 3px;
+}
+.upload-zone:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.pending-attachment {
+  border-style: dashed;
 }
 .upload-zone strong {
   font-size: 11px;

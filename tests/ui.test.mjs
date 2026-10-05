@@ -206,6 +206,13 @@ await test("English LTR dashboard works on desktop, tablet and mobile", async ()
       .filter({ hasText: "ui-order.pdf" })
       .waitFor();
     await dialog
+      .getByRole("button", { name: "Save Changes", exact: true })
+      .click();
+    await dialog
+      .locator(".pending-attachment")
+      .first()
+      .waitFor({ state: "detached" });
+    await dialog
       .getByRole("button", { name: "Preview ui-approval.png", exact: true })
       .first()
       .click();
@@ -213,7 +220,7 @@ await test("English LTR dashboard works on desktop, tablet and mobile", async ()
     assert.match(await page.locator(".preview-toolbar").innerText(), /125%/);
     await page.getByRole("button", { name: "Close preview" }).click();
     await dialog
-      .getByLabel("Replace ui-approval.png", { exact: true })
+      .getByLabel("Replacement file for ui-approval.png", { exact: true })
       .setInputFiles({
         name: "ui-replaced.png",
         mimeType: "image/png",
