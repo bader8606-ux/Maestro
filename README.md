@@ -1,6 +1,25 @@
 # MAESTRO — Digital Government Forum
 
-A working English-only, left-to-right Sponsor Management Dashboard. The application starts with **zero sponsors and zero sponsorship packages**. No sponsor names, contact details, payments or documents are seeded.
+One shared English-only, left-to-right page for viewing and editing sponsor details. The summary table and full sponsor records stay on the page; editing, packages, access and branding open in dialogs. The application starts with **zero sponsors and zero sponsorship packages**. No sponsor names, contact details, payments or documents are seeded.
+
+## Publish the shared page with GitHub Pages and free Supabase
+
+GitHub Pages hosts the single frontend page. Supabase Auth, Postgres, private Storage and an authenticated Edge Function provide shared persistence and access control. No paid resource is created by the deployment scripts. Free-plan usage limits and provider inactivity policies apply; this is not a promise of unlimited hosting.
+
+1. Create a project in your **Free** Supabase organization at https://supabase.com/dashboard. Keep its database password private. Copy the project reference from its URL.
+2. In this repository, open **Settings → Secrets and variables → Actions**. Add `SUPABASE_PROJECT_REF` as a repository **variable** and `SUPABASE_ACCESS_TOKEN` as a repository **secret** (generate the account access token in Supabase account settings). Never paste the token into chat or source files. The token is used only by deployment, never included in the webpage.
+3. Open **Settings → Pages**, choose **GitHub Actions** as the source. Run **Publish shared sponsor page** under Actions. On later pushes to `main`, it runs automatically.
+4. The workflow applies versioned migrations, disables public signup, enables email/password login, configures the allowed page origin and deploys `maestro-api`. It uses the public publishable/anon key in the frontend; the service-role key remains in Supabase's server environment. The workflow only configures the existing project, without upgrading its plan.
+5. In **Supabase → Authentication → Users**, use **Add user → Create new user** to create your own user with your real email and a strong password, and mark the email confirmed. Open the project's SQL editor and run [bootstrap-admin.example.sql](supabase/bootstrap-admin.example.sql), replacing `YOUR_EMAIL` and `YOUR_NAME`. This creates the first administrator only if no workspace accounts exist. Do not put passwords in SQL or chat.
+6. Open the URL shown by the successful Pages deployment and sign in. The expected project address is https://bader8606-ux.github.io/Maestro/ unless you configure a custom domain. Use **Team & Access** within the page to create viewer/editor/admin accounts. Every authenticated account can view the workspace; only editors and administrators can edit records, and only administrators can manage access and branding.
+
+Without project configuration, Pages shows **Workspace connection required** and does not pretend that data is saved. A workflow push or frontend build alone does not confirm a live, connected workspace. If project variables are present but the token is missing/invalid, deployment fails and leaves the previous deployment intact. The actual Supabase project and public URL still need verification in your account.
+
+The schema enables RLS on every application table and grants no anonymous/authenticated direct table access. Only the function's service role accesses records after validating the Supabase bearer token, active profile, role and current session on every request. Private attachments use signed links valid for one hour; recipients of a signed link can open it until expiry. Public signup is disabled. Password resets and deactivation revoke sessions immediately. The browser SDK persists authentication sessions; business data and uploaded files are stored in Supabase. Uploads accept up to 10 files of 10 MB each, subject to your plan and provider request limits. Exports are generated in the function, in English with SAR, and include the configured accent and PNG/JPEG logo. PDF and Excel list attachment metadata; they do not embed attachment document contents.
+
+For backups, export sponsor reports and back up the database **and** private storage through Supabase. GitHub source/deployments do not back up live data. The local SQLite data does not automatically migrate to Supabase; no production records were provided or seeded.
+
+For local cloud development, set the two public variables in [.env.example](.env.example). `VITE_BASE_PATH` defaults to `/`; the Pages workflow sets the repository base path. Never use a `service_role` JWT or `sb_secret_` key in any `VITE_` variable.
 
 ## Run the application
 
@@ -67,4 +86,8 @@ A Dockerfile and Compose configuration are included. Use a persistent `/data` vo
 docker compose up --build -d
 ```
 
-The Docker setup runs as the unprivileged `node` user. It persists `/data` in the named `maestro-data` volume. Retrieve the first-run token securely from that volume; its path is `/data/setup-token` inside the container. The local HTTP default can be changed through Compose environment variables. A public HTTPS deployment must explicitly set `COOKIE_SECURE=true` and the correct `APP_ORIGIN`. Deployment/publication has not been performed by the setup task.
+The Docker setup runs as the unprivileged `node` user. It persists `/data` in the named `maestro-data` volume. Retrieve the first-run token securely from that volume; its path is `/data/setup-token` inside the container. The local HTTP default can be changed through Compose environment variables. A public HTTPS deployment must explicitly set `COOKIE_SECURE=true` and the correct `APP_ORIGIN`. The Node/Docker deployment is an alternative to the selected GitHub Pages + Supabase deployment. The original Node Docker image was built locally before the Pages/Supabase changes; a public Node server has not been deployed.
+
+## Cloud backend validation
+
+`npm run test:cloud` requires an **isolated local Supabase stack** and `SUPABASE_TEST_CONFIG` pointing to a protected JSON file from `supabase status -o json`. Never print that file: it contains local test keys. Tests reject non-loopback project URLs, create disposable fixture accounts and records, and clean them up. They exercise actual managed Auth, Postgres permissions, private Storage and the same request handler used by the Edge Function: authorization, validation, concurrent saves, attachment ownership, genuine branded Excel/PDF generation, persistence and session revocation. A Deno HTTP check and a browser test built for the `/Maestro/` Pages path exercise cloud sign-in, persistence, editing, signed-image previews and authenticated exports. The standard `npm test` runs the local Node backend and single-page browser checks. Cloud project deployment and public connectivity must be checked separately.

@@ -10,11 +10,15 @@
     "test": "node --test tests/*.test.mjs",
     "test:api": "node --test tests/api.test.mjs",
     "test:ui": "node --test tests/ui.test.mjs",
-    "format": "prettier --write src server tests *.json *.ts index.html README.md"
+    "format": "prettier --write src server tests *.json *.ts index.html README.md",
+    "test:cloud": "node --test tests/supabase.integration.mjs"
   },
   "dependencies": {
+    "@supabase/supabase-js": "2.117.2",
     "exceljs": "4.4.0",
     "express": "5.2.1",
+    "fflate": "0.8.3",
+    "jspdf": "4.2.1",
     "lucide-react": "0.468.0",
     "multer": "2.4.0",
     "pdfkit": "0.20.2",
@@ -26,8 +30,10 @@
     "@types/react": "19.1.10",
     "@types/react-dom": "19.1.9",
     "@vitejs/plugin-react": "6.1.1",
+    "deno": "2.9.6",
     "playwright-core": "1.63.0",
     "prettier": "3.9.9",
+    "supabase": "2.119.0",
     "typescript": "5.9.2",
     "vite": "8.3.2"
   },

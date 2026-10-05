@@ -79,7 +79,7 @@ await test("English LTR dashboard works on desktop, tablet and mobile", async ()
       .getByRole("button", { name: "Add Package", exact: true })
       .first()
       .click();
-    let dialog = page.getByRole("dialog");
+    let dialog = page.getByRole("dialog").last();
     await dialog.getByLabel("Package Name").fill("UI test package");
     await dialog
       .getByRole("textbox", { name: "New default benefit" })
@@ -87,12 +87,14 @@ await test("English LTR dashboard works on desktop, tablet and mobile", async ()
     await dialog.getByRole("button", { name: "Add", exact: true }).click();
     await dialog.getByRole("button", { name: "Save Package" }).click();
     await page.getByRole("heading", { name: "UI test package" }).waitFor();
-    await page.getByRole("button", { name: "Dashboard", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Close dialog", exact: true })
+      .click();
     await page
       .getByRole("button", { name: "Add Sponsor", exact: true })
       .first()
       .click();
-    dialog = page.getByRole("dialog");
+    dialog = page.getByRole("dialog").last();
     await dialog
       .getByLabel("Sponsor Name", { exact: true })
       .fill("UI test sponsor");
@@ -169,7 +171,7 @@ await test("English LTR dashboard works on desktop, tablet and mobile", async ()
       .waitFor();
     await dialog.getByRole("tab", { name: "Attachments" }).click();
     const png = Buffer.from(
-      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jX1sAAAAASUVORK5CYII=",
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4XmP4DwQACfsD/YcUtbcAAAAASUVORK5CYII=",
       "base64",
     );
     await dialog
@@ -233,6 +235,18 @@ await test("English LTR dashboard works on desktop, tablet and mobile", async ()
     await page.getByRole("button", { name: "Export to Excel" }).click();
     const download = await downloadPromise;
     assert.equal(download.suggestedFilename(), "MAESTRO-Sponsors.xlsx");
+    assert.match(
+      await page.locator(".complete-records").innerText(),
+      /UI test contact/,
+    );
+    assert.match(
+      await page.locator(".complete-records").innerText(),
+      /1,500\.25/,
+    );
+    assert.match(
+      await page.locator(".complete-records").innerText(),
+      /ui-order\.pdf/,
+    );
     await page.reload();
     await page
       .getByRole("button", { name: /UI test sponsor UI test contact/ })
@@ -240,7 +254,7 @@ await test("English LTR dashboard works on desktop, tablet and mobile", async ()
     await page
       .getByRole("button", { name: /UI test sponsor UI test contact/ })
       .click();
-    dialog = page.getByRole("dialog");
+    dialog = page.getByRole("dialog").last();
     await dialog.getByRole("tab", { name: "Financials" }).click();
     assert.match(
       await dialog.locator(".financial-cards").innerText(),
@@ -284,24 +298,16 @@ await test("English LTR dashboard works on desktop, tablet and mobile", async ()
         }),
       );
       if (width === 390) {
-        await page.getByRole("button", { name: "Open navigation" }).click();
         await page
           .getByRole("button", { name: "Sponsorship Packages", exact: true })
           .click();
         await page
-          .getByRole("heading", { name: "Sponsorship Packages", exact: true })
+          .getByRole("dialog", { name: "Sponsorship Packages", exact: true })
           .waitFor();
-        await page.getByRole("button", { name: "Open navigation" }).click();
         await page
-          .getByRole("button", { name: "Dashboard", exact: true })
+          .getByRole("button", { name: "Close dialog", exact: true })
           .click();
       }
-      if (width === 390)
-        await page.waitForFunction(
-          () =>
-            document.querySelector(".sidebar").getBoundingClientRect().right <=
-            1,
-        );
       await page.screenshot({
         path: "/tmp/maestro-" + width + ".png",
         fullPage: true,

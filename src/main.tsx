@@ -46,6 +46,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import "./styles.css";
+import { api, request, attachmentUrl, connectionMissing } from "./api";
 
 type User = {
   id: string;
@@ -63,6 +64,7 @@ type Attachment = {
   mime: string;
   size: number;
   createdAt: string;
+  url?: string;
 };
 type Sponsor = {
   id: string;
@@ -115,29 +117,6 @@ const day = (s: string) =>
         timeZone: "UTC",
       }).format(new Date(s + "T00:00:00Z"))
     : "Not provided";
-async function api<T>(url: string, method = "GET", body?: unknown): Promise<T> {
-  const form = body instanceof FormData;
-  const res = await fetch("/api" + url, {
-    method,
-    credentials: "same-origin",
-    headers: {
-      "X-Requested-With": "Maestro",
-      ...(!form && body !== undefined
-        ? { "Content-Type": "application/json" }
-        : {}),
-    },
-    body: body === undefined ? undefined : form ? body : JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const err = await res
-      .json()
-      .catch(() => ({ error: "The server is unavailable. Please try again." }));
-    if (res.status === 401 && url !== "/login" && url !== "/me")
-      window.dispatchEvent(new Event("session-expired"));
-    throw new Error(err.error || "The request failed.");
-  }
-  return res.json();
-}
 const newSponsor = (): Sponsor => ({
   id: "",
   name: "",
@@ -348,8 +327,7 @@ function App() {
     });
   const [page, setPage] = useState<Page>("dashboard"),
     [notice, setNotice] = useState<Notice | null>(null),
-    [active, setActive] = useState<Sponsor | null>(null),
-    [mobileNav, setMobileNav] = useState(false);
+    [active, setActive] = useState<Sponsor | null>(null);
   const notify = (message: string, error = false) =>
     setNotice({ message, error });
   const load = async () => {
@@ -380,6 +358,7 @@ function App() {
     }
   };
   useEffect(() => {
+    if (connectionMissing) return;
     void boot();
     const expire = () => {
       setUser(null);
@@ -414,6 +393,17 @@ function App() {
       notify((e as Error).message, true);
     }
   };
+  if (connectionMissing)
+    return (
+      <div className="loading-screen">
+        <LockKeyhole />
+        <h1>Workspace connection required</h1>
+        <p>
+          The shared sponsor page needs its Supabase connection before sign-in
+          and saving are available.
+        </p>
+      </div>
+    );
   if (loading)
     return (
       <div className="loading-screen">
@@ -439,17 +429,6 @@ function App() {
       </>
     );
   const editable = user.role !== "viewer";
-  const nav: { id: Page; label: string; icon: LucideIcon }[] = [
-    { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-    { id: "sponsors", label: "Sponsors", icon: Handshake },
-    { id: "packages", label: "Sponsorship Packages", icon: Layers3 },
-    ...(user.role === "admin"
-      ? [
-          { id: "team" as Page, label: "Team & Access", icon: Users },
-          { id: "brand" as Page, label: "Brand Settings", icon: Palette },
-        ]
-      : []),
-  ];
   const logout = async () => {
     try {
       await api("/logout", "POST");
@@ -462,119 +441,58 @@ function App() {
   };
   return (
     <div className="app-shell">
-      <aside className={"sidebar " + (mobileNav ? "open" : "")}>
-        <a
-          href="#dashboard"
-          className="brand"
-          onClick={(e) => {
-            e.preventDefault();
-            setPage("dashboard");
-          }}
-        >
-          {brand.logoUrl ? (
-            <img src={brand.logoUrl} alt="MAESTRO" />
-          ) : (
-            <span>MAESTRO</span>
-          )}
-          <small>PARTNERSHIP WORKSPACE</small>
-        </a>
-        <div className="sidebar-rule" />
-        <span className="nav-label">FORUM OPERATIONS</span>
-        <nav>
-          {nav.map((item) => (
-            <button
-              key={item.id}
-              className={"nav-item " + (page === item.id ? "active" : "")}
-              onClick={() => {
-                setPage(item.id);
-                setMobileNav(false);
-              }}
-            >
-              <item.icon size={19} />
-              {item.label}
-              {page === item.id && <span className="nav-dot" />}
-            </button>
-          ))}
-        </nav>
-        <div className="sidebar-bottom">
-          <div className="workspace-note">
-            <ShieldCheck size={22} />
-            <div>
-              <strong>One shared workspace</strong>
-              <span>Secure access. Lasting records.</span>
-            </div>
+      <main className="main">
+        <header className="single-header">
+          <div className="brand">
+            {brand.logoUrl ? (
+              <img src={brand.logoUrl} alt="MAESTRO" />
+            ) : (
+              <span>MAESTRO</span>
+            )}
+            <small>DIGITAL GOVERNMENT FORUM</small>
           </div>
-          <div className="user-block">
-            <div className="avatar">{user.name.slice(0, 2).toUpperCase()}</div>
-            <div>
-              <strong>{user.name}</strong>
-              <span>
-                {user.role === "admin"
-                  ? "Administrator"
-                  : user.role === "editor"
-                    ? "Editor"
-                    : "View only"}
-              </span>
-            </div>
+          <div className="single-actions">
+            <button className="secondary" onClick={() => setPage("packages")}>
+              <Layers3 size={16} />
+              Sponsorship Packages
+            </button>
+            {user.role === "admin" && (
+              <>
+                <button className="secondary" onClick={() => setPage("team")}>
+                  <Users size={16} />
+                  Team &amp; Access
+                </button>
+                <button className="secondary" onClick={() => setPage("brand")}>
+                  <Palette size={16} />
+                  Brand Settings
+                </button>
+              </>
+            )}
+            <span className="access-label">
+              {user.name} ·{" "}
+              {user.role === "admin"
+                ? "Administrator"
+                : user.role === "editor"
+                  ? "Editor"
+                  : "View only"}
+            </span>
             <IconButton
               icon={LogOut}
               label="Sign out"
               onClick={() => void logout()}
             />
           </div>
-        </div>
-      </aside>
-      {mobileNav && (
-        <div className="nav-backdrop" onClick={() => setMobileNav(false)} />
-      )}
-      <main className="main">
-        <header className="topbar">
-          <div className="breadcrumb">
-            <button
-              className="mobile-menu icon-button"
-              aria-label="Open navigation"
-              onClick={() => setMobileNav(true)}
-            >
-              <Menu size={20} />
-            </button>
-            <span>Workspace</span>
-            <span className="slash">/</span>
-            <strong>{nav.find((n) => n.id === page)?.label}</strong>
-          </div>
-          <div className="topbar-right">
-            <span className="saved-label">
-              <span />
-              Server-backed workspace
-            </span>
-            <div className="top-avatar">
-              {user.name.slice(0, 1).toUpperCase()}
-            </div>
-          </div>
         </header>
         <div className="page-content">
-          {(page === "dashboard" || page === "sponsors") && (
-            <Dashboard
-              sponsors={sponsors}
-              packages={packages}
-              editable={editable}
-              open={setActive}
-              notify={notify}
-              refresh={load}
-              sponsorOnly={page === "sponsors"}
-            />
-          )}
-          {page === "packages" && (
-            <Packages
-              packages={packages}
-              editable={editable}
-              refresh={load}
-              notify={notify}
-            />
-          )}
-          {page === "team" && <Team current={user} notify={notify} />}
-          {page === "brand" && (
-            <BrandSettings brand={brand} onChange={setBrand} notify={notify} />
-          )}
+          <Dashboard
+            sponsors={sponsors}
+            packages={packages}
+            editable={editable}
+            open={setActive}
+            notify={notify}
+            refresh={load}
+            sponsorOnly={false}
+          />
           <footer className="footer">
             <span>
               MAESTRO <span className="footer-dot">·</span> Digital Government
@@ -587,6 +505,38 @@ function App() {
           </footer>
         </div>
       </main>
+      {page !== "dashboard" && (
+        <Modal
+          wide
+          title={
+            page === "packages"
+              ? "Sponsorship Packages"
+              : page === "team"
+                ? "Team & Access"
+                : "Brand Settings"
+          }
+          onClose={() => setPage("dashboard")}
+        >
+          <div className="single-settings">
+            {page === "packages" && (
+              <Packages
+                packages={packages}
+                editable={editable}
+                refresh={load}
+                notify={notify}
+              />
+            )}
+            {page === "team" && <Team current={user} notify={notify} />}
+            {page === "brand" && (
+              <BrandSettings
+                brand={brand}
+                onChange={setBrand}
+                notify={notify}
+              />
+            )}
+          </div>
+        </Modal>
+      )}
       {active && (
         <SponsorPanel
           key={active.id || "new"}
@@ -835,8 +785,8 @@ function Dashboard({
   const exportFile = async (format: "excel" | "pdf") => {
     setExportBusy(format);
     try {
-      const res = await fetch(
-        "/api/export/" +
+      const res = await request(
+        "/export/" +
           format +
           "?ids=" +
           encodeURIComponent(filtered.map((s) => s.id).join(",")),
@@ -1132,6 +1082,17 @@ function Dashboard({
           </span>
         </div>
       </section>
+      <section className="complete-records" aria-label="All sponsor details">
+        {filtered.map((s) => (
+          <CompleteRecord
+            key={s.id}
+            sponsor={s}
+            editable={editable}
+            open={() => open(s)}
+            notify={notify}
+          />
+        ))}
+      </section>
       <div className="workspace-tip">
         <ShieldCheck size={18} />
         <p>
@@ -1142,12 +1103,183 @@ function Dashboard({
     </>
   );
 }
+function CompleteRecord({
+  sponsor: s,
+  editable,
+  open,
+  notify,
+}: {
+  sponsor: Sponsor;
+  editable: boolean;
+  open: () => void;
+  notify: (m: string, e?: boolean) => void;
+}) {
+  const [preview, setPreview] = useState<Attachment | null>(null);
+  const copy = async (value: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      notify("Copied to clipboard.");
+    } catch {
+      notify("Copy failed. Please select and copy the text.", true);
+    }
+  };
+  const item = (label: string, value: React.ReactNode) => (
+    <div>
+      <dt>{label}</dt>
+      <dd>{value || "Not provided"}</dd>
+    </div>
+  );
+  return (
+    <article className="complete-record">
+      <header>
+        <div className="record-name">
+          <SponsorAvatar sponsor={s} />
+          <div>
+            <h2>{s.name}</h2>
+            <small>Last Updated: {timestamp(s.updatedAt)}</small>
+          </div>
+        </div>
+        <button className="secondary" onClick={open}>
+          <Pencil size={16} />
+          {editable ? "Edit Sponsor" : "View Sponsor"}
+        </button>
+      </header>
+      <dl className="record-fields">
+        {item("Sponsorship Package", s.packageName)}
+        {item("Contact Person", s.contact)}
+        {item(
+          "Mobile Number",
+          s.mobile && (
+            <span className="record-contact">
+              <a href={"tel:" + s.mobile}>{s.mobile}</a>
+              <IconButton
+                icon={Copy}
+                label={"Copy mobile for " + s.name}
+                onClick={() => void copy(s.mobile)}
+              />
+              <a
+                href={"https://wa.me/" + s.mobile.replace(/\D/g, "")}
+                target="_blank"
+                rel="noreferrer"
+                aria-label={"Open WhatsApp for " + s.name}
+              >
+                <MessageCircle size={17} />
+              </a>
+            </span>
+          ),
+        )}
+        {item(
+          "Email Address",
+          s.email && (
+            <span className="record-contact">
+              <a href={"mailto:" + s.email}>{s.email}</a>
+              <IconButton
+                icon={Copy}
+                label={"Copy email for " + s.name}
+                onClick={() => void copy(s.email)}
+              />
+            </span>
+          ),
+        )}
+        {item("Approval Status", <Badge status={s.approval} />)}
+        {item("Approval Date", day(s.approvalDate))}
+        {item(
+          "Purchase Order Issued",
+          <Badge status={s.poIssued ? "Yes" : "No"} />,
+        )}
+        {item("Purchase Order Number", s.poNumber)}
+        {item("Purchase Order Date", day(s.poDate))}
+        {item("Total Sponsorship Value", "SAR " + money(s.value))}
+        {item("Total Received", "SAR " + money(s.received))}
+        {item("Outstanding Balance", "SAR " + money(s.outstanding))}
+      </dl>
+      <div className="record-sections">
+        <section>
+          <h3>Payments Received</h3>
+          {s.payments.length ? (
+            <ul>
+              {s.payments.map((p) => (
+                <li key={p.id}>
+                  <strong>SAR {money(p.amount)}</strong> · {day(p.date)}
+                  {p.note && <p>{p.note}</p>}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No payments recorded.</p>
+          )}
+        </section>
+        <section>
+          <h3>Package Benefits</h3>
+          {s.benefits.length ? (
+            <ul>
+              {s.benefits.map((b) => (
+                <li key={b.id}>
+                  <Badge status={b.completed ? "Completed" : "Pending"} />
+                  {" " + b.title}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No benefits added.</p>
+          )}
+        </section>
+        {(["approval", "purchase-order"] as const).map((kind) => (
+          <section key={kind}>
+            <h3>
+              {kind === "approval"
+                ? "Approval Attachments"
+                : "Purchase Order Attachments"}
+            </h3>
+            {s.attachments.filter((a) => a.kind === kind).length ? (
+              <ul>
+                {s.attachments
+                  .filter((a) => a.kind === kind)
+                  .map((a) => (
+                    <li key={a.id}>
+                      <button
+                        className="text-button"
+                        onClick={() => setPreview(a)}
+                      >
+                        <Eye size={15} />
+                        {a.name}
+                      </button>
+                      <a
+                        href={attachmentUrl(a, true)}
+                        target="_blank"
+                        rel="noreferrer"
+                        aria-label={"Download " + a.name}
+                      >
+                        <Download size={15} />
+                      </a>
+                    </li>
+                  ))}
+              </ul>
+            ) : (
+              <p>No attachments uploaded.</p>
+            )}
+          </section>
+        ))}
+      </div>
+      {s.notes && (
+        <div className="record-notes">
+          <h3>Notes</h3>
+          <p>{s.notes}</p>
+        </div>
+      )}
+      {preview && (
+        <Preview attachment={preview} close={() => setPreview(null)} />
+      )}
+    </article>
+  );
+}
+
 function SponsorAvatar({ sponsor }: { sponsor: Sponsor }) {
   const logo = sponsor.attachments.find((a) => a.kind === "logo");
   return (
     <div className="sponsor-avatar">
       {logo ? (
-        <img src={"/api/attachments/" + logo.id} alt={sponsor.name + " logo"} />
+        <img src={attachmentUrl(logo)} alt={sponsor.name + " logo"} />
       ) : (
         <Building2 size={20} />
       )}
@@ -1278,7 +1410,7 @@ function SponsorPanel({
         aria-label={"Preview " + a.name}
       >
         {a.mime.startsWith("image/") ? (
-          <img src={"/api/attachments/" + a.id} alt={a.name} />
+          <img src={attachmentUrl(a)} alt={a.name} />
         ) : (
           <FileText size={25} />
         )}
@@ -1297,7 +1429,7 @@ function SponsorPanel({
         />
         <a
           className="icon-button"
-          href={"/api/attachments/" + a.id + "?download=1"}
+          href={attachmentUrl(a, true)}
           aria-label={"Download " + a.name}
         >
           <Download size={16} />
@@ -1426,10 +1558,7 @@ function SponsorPanel({
                 <Field label="Sponsor Logo">
                   <div className="logo-upload">
                     {logo ? (
-                      <img
-                        src={"/api/attachments/" + logo.id}
-                        alt="Sponsor logo"
-                      />
+                      <img src={attachmentUrl(logo)} alt="Sponsor logo" />
                     ) : (
                       <Building2 size={26} />
                     )}
@@ -2139,7 +2268,7 @@ function Preview({
           )}
           <a
             className="icon-button"
-            href={"/api/attachments/" + attachment.id + "?download=1"}
+            href={attachmentUrl(attachment, true)}
             aria-label="Download attachment"
           >
             <Download size={18} />
@@ -2150,15 +2279,12 @@ function Preview({
       <div className="preview-body">
         {attachment.mime.startsWith("image/") ? (
           <img
-            src={"/api/attachments/" + attachment.id}
+            src={attachmentUrl(attachment)}
             alt={attachment.name}
             style={{ width: zoom * 100 + "%", maxWidth: "none" }}
           />
         ) : (
-          <iframe
-            src={"/api/attachments/" + attachment.id}
-            title={attachment.name}
-          />
+          <iframe src={attachmentUrl(attachment)} title={attachment.name} />
         )}
       </div>
       <p className="preview-caption">
@@ -2659,7 +2785,11 @@ function BrandSettings({
       const form = new FormData();
       form.set("file", file);
       const b = await api<Brand>("/brand/logo", "POST", form);
-      onChange({ ...b, logoUrl: b.logoUrl + "?v=" + Date.now() });
+      onChange({
+        ...b,
+        logoUrl:
+          b.logoUrl + (b.logoUrl?.includes("?") ? "&v=" : "?v=") + Date.now(),
+      });
       notify("Official logo saved.");
     } catch (e) {
       notify((e as Error).message, true);

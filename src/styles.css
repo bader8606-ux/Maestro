@@ -2351,3 +2351,199 @@ td {
 .icon-button {
   position: relative;
 }
+
+/* One shared page: all records remain visible while settings open in dialogs. */
+.app-shell {
+  display: block;
+}
+.main {
+  margin-left: 0;
+  min-width: 0;
+}
+.single-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 24px 40px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface, #fff);
+}
+.single-header .brand {
+  min-width: 180px;
+}
+.single-header .brand span {
+  color: var(--text, #202a27);
+}
+.single-header .brand small {
+  color: var(--muted, #747d78);
+}
+.single-header .brand img {
+  max-width: 170px;
+  max-height: 45px;
+  object-fit: contain;
+}
+.single-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.access-label {
+  font-size: 12px;
+  color: var(--muted, #747d78);
+}
+.single-settings {
+  padding: 24px;
+}
+.complete-records {
+  display: grid;
+  gap: 24px;
+  margin-top: 24px;
+}
+.complete-record {
+  padding: 24px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  min-width: 0;
+}
+.complete-record > header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.record-name {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+}
+.record-name h2 {
+  font-size: 20px;
+  margin: 0 0 5px;
+  overflow-wrap: anywhere;
+}
+.record-name small {
+  font-size: 12px;
+  color: var(--muted, #747d78);
+}
+.record-fields {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 20px;
+}
+.record-fields dt {
+  font-size: 12px;
+  color: var(--muted, #747d78);
+  margin-bottom: 8px;
+}
+.record-fields dd {
+  margin: 0;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.record-contact {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.record-sections {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+  border-top: 1px solid var(--border);
+  padding-top: 22px;
+  margin-top: 24px;
+}
+.record-sections h3,
+.record-notes h3 {
+  font-size: 14px;
+  margin: 0 0 12px;
+}
+.record-sections p,
+.record-notes p {
+  font-size: 13px;
+  color: var(--muted, #747d78);
+  margin: 6px 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.record-sections ul {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.record-sections li {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 7px 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.record-sections li p {
+  flex-basis: 100%;
+}
+.record-sections .text-button {
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+.record-notes {
+  margin-top: 24px;
+}
+@media (max-width: 1000px) {
+  .single-header {
+    padding: 20px 24px;
+    align-items: flex-start;
+  }
+  .record-fields {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (max-width: 600px) {
+  .single-header {
+    flex-direction: column;
+    padding: 20px;
+  }
+  .single-actions {
+    justify-content: flex-start;
+    gap: 8px;
+  }
+  .single-actions .secondary {
+    font-size: 11px;
+    padding: 9px;
+  }
+  .complete-record {
+    padding: 18px;
+  }
+  .complete-record > header {
+    align-items: flex-start;
+  }
+  .record-fields,
+  .record-sections {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .record-fields {
+    gap: 18px 12px;
+  }
+  .record-sections {
+    grid-template-columns: 1fr;
+  }
+  .record-name h2 {
+    font-size: 17px;
+  }
+  .complete-record > header .secondary {
+    font-size: 11px;
+    padding: 8px;
+    flex-shrink: 0;
+  }
+  .single-settings {
+    padding: 16px;
+  }
+}

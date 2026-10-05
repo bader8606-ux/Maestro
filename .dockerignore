@@ -6,3 +6,7 @@ dist
 *.log
 test-results
 playwright-report
+
+.env.*
+supabase/.temp/
+supabase/.branches/

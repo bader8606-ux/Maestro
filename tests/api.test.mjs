@@ -77,7 +77,7 @@ async function json(url, method = "GET", data, session = cookie) {
 }
 const session = (res) => res.headers.getSetCookie()[0].split(";")[0];
 const png = Buffer.from(
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jX1sAAAAASUVORK5CYII=",
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4XmP4DwQACfsD/YcUtbcAAAAASUVORK5CYII=",
   "base64",
 );
 const sponsorInput = () => ({
