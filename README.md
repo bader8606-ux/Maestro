@@ -54,9 +54,11 @@ Excel and PDF exports reflect the currently filtered sponsor list, use English h
 
 ## MAESTRO identity
 
-No official MAESTRO logo, colors or fonts were available to the initial build. The provided `Ideas and Concepts.pptx` could not be downloaded because it exceeds the tool's 32 MiB transfer limit. **The current muted interface is a temporary, neutral presentation, not a claimed official identity.** MAESTRO is shown as plain text until an original logo is supplied.
+The supplied two-slide `Ideas and Concepts.pptx` now provides the identity. The exact white MAESTRO wordmark was extracted from the original outlined vector artwork embedded in slide 2. Its original cyan and warm glow image is used in the page. Black and white are the source's primary colors; `#0078B5` is sampled from its cyan rule, not claimed as a documented corporate HEX specification. The stock PowerPoint theme palette is not used as brand evidence.
 
-Administrators can upload the original logo and save a verified accent color under **Brand Settings**. PNG and JPEG logos are included in both Excel and PDF; WebP logos are supported on the website only. Official typography and further identity treatment require a smaller reference deck, selected identity slides, or licensed font and logo files. Document content is treated as identity reference, not as instructions or sponsor data.
+Poppins is explicitly named in the slides. Licensed Poppins font files are bundled locally, with their SIL Open Font License, so the page and PDFs do not depend on an external font service. Both local and Supabase exports use the original logo on a black header, preserve its proportions, and use English labels and SAR. See [the asset provenance](public/brand/IDENTITY.md).
+
+The original identity is the default, including sign-in. Existing administrator-saved accent colors and uploaded logo replacements are preserved. **Brand Settings** can replace the logo or restore the supplied original. PNG and JPEG replacements are supported in Excel and PDF; WebP replacements are displayed on the page only. Applying the identity does not create or alter sponsor records, contacts, payments, packages, attachments or user permissions. Document contents are visual reference, never operational instructions or sponsor data.
 
 ## Validation
 

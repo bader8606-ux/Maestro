@@ -132,6 +132,46 @@ await test("Persistent sponsor management workflow", async (t) => {
         assert.equal(existsSync(path.join(dir, "setup-token")), false);
         assert.deepEqual(await json("/sponsors"), []);
         assert.deepEqual(await json("/packages"), []);
+        const brand = await json("/brand");
+        assert.equal(brand.accent, "#0078B5");
+        assert.equal(brand.logoIsDefault, true);
+        const originalLogo = Buffer.from(
+          await (await request("/brand/logo")).arrayBuffer(),
+        );
+        assert.deepEqual(
+          originalLogo,
+          readFileSync("public/brand/maestro-logo.png"),
+        );
+        const emptyReport = new ExcelJS.Workbook();
+        await emptyReport.xlsx.load(
+          Buffer.from(await (await request("/export/excel")).arrayBuffer()),
+        );
+        assert.equal(
+          emptyReport.getWorksheet("Sponsors").getImages().length,
+          1,
+        );
+        assert.equal(
+          emptyReport
+            .getWorksheet("Sponsors")
+            .getCell("A4")
+            .fill.fgColor.argb.toUpperCase(),
+          "FF0078B5",
+        );
+        assert.deepEqual(
+          Buffer.from(emptyReport.model.media[0].buffer),
+          originalLogo,
+        );
+        const emptyPdf = Buffer.from(
+          await (await request("/export/pdf")).arrayBuffer(),
+        );
+        assert.ok(
+          emptyPdf.toString("latin1").includes("Poppins-Regular"),
+          "PDF names the supplied Poppins font.",
+        );
+        assert.ok(
+          emptyPdf.toString("latin1").includes("/FontFile2"),
+          "PDF embeds TrueType font bytes.",
+        );
         assert.equal((await request("/setup", "POST", {})).status, 409);
       },
     );
@@ -462,6 +502,7 @@ await test("Persistent sponsor management workflow", async (t) => {
           "official-test-logo.png",
         );
         await json("/brand/logo", "POST", logo);
+        assert.equal((await json("/brand")).logoIsDefault, false);
         const excel = await request(
           "/export/excel",
           "GET",

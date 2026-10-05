@@ -21,6 +21,12 @@ import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import ExcelJS from "exceljs";
 import PDFDocument from "pdfkit";
+import {
+  resolveBrand,
+  officialLogo,
+  officialFonts,
+  fitLogo,
+} from "../supabase/functions/maestro-api/brand.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dataDir = path.resolve(process.env.DATA_DIR || "/workspace/maestro-data");
@@ -616,13 +622,23 @@ const brandSchema = z.object({
 });
 const getBrand = () => {
   const row = db.prepare("SELECT data FROM settings WHERE id='brand'").get();
-  return row
-    ? JSON.parse(row.data)
-    : { organization: "MAESTRO", accent: "#536b62", configured: false };
+  return resolveBrand(row ? JSON.parse(row.data) : {});
 };
+const brandResponse = (b) => ({
+  ...b,
+  logoUrl: b.logo ? "/api/brand/logo" : "/brand/maestro-logo.png",
+  logoIsDefault: !b.logo,
+});
+const reportLogo = (b) =>
+  b.logo && ["image/png", "image/jpeg"].includes(b.logoMime)
+    ? { bytes: readFileSync(path.join(uploadDir, b.logo)), mime: b.logoMime }
+    : {
+        bytes: Buffer.from(officialLogo.base64, "base64"),
+        mime: officialLogo.mime,
+      };
 app.get("/api/brand", (req, res) => {
   const b = getBrand();
-  res.json({ ...b, logoUrl: b.logo ? "/api/brand/logo" : null });
+  res.json(brandResponse(b));
 });
 app.put("/api/brand", admin, (req, res) => {
   const input = brandSchema.parse(req.body);
@@ -631,7 +647,7 @@ app.put("/api/brand", admin, (req, res) => {
   db.prepare("INSERT OR REPLACE INTO settings VALUES ('brand',?)").run(
     JSON.stringify(value),
   );
-  res.json({ ...value, logoUrl: value.logo ? "/api/brand/logo" : null });
+  res.json(brandResponse(value));
 });
 app.post("/api/brand/logo", admin, upload.single("file"), (req, res) => {
   if (!req.file)
@@ -645,11 +661,14 @@ app.post("/api/brand/logo", admin, upload.single("file"), (req, res) => {
   );
   if (old.logo && existsSync(path.join(uploadDir, old.logo)))
     unlinkSync(path.join(uploadDir, old.logo));
-  res.json({ ...value, logoUrl: "/api/brand/logo" });
+  res.json(brandResponse(value));
 });
 app.get("/api/brand/logo", (req, res) => {
   const b = getBrand();
-  if (!b.logo) return res.sendStatus(404);
+  if (!b.logo)
+    return res
+      .type(officialLogo.mime)
+      .send(Buffer.from(officialLogo.base64, "base64"));
   res.type(b.logoMime).sendFile(path.join(uploadDir, b.logo));
 });
 app.delete("/api/brand/logo", admin, (req, res) => {
@@ -661,7 +680,7 @@ app.delete("/api/brand/logo", admin, (req, res) => {
   db.prepare("INSERT OR REPLACE INTO settings VALUES ('brand',?)").run(
     JSON.stringify(b),
   );
-  res.json({ ...b, logoUrl: null });
+  res.json(brandResponse(b));
 });
 const exportRows = (req) => {
   let list = db
@@ -776,16 +795,43 @@ app.get("/api/export/excel", async (req, res, next) => {
         ]);
     attachments.columns.forEach((c) => (c.width = 32));
     const brand = getBrand();
-    if (brand.logo && ["image/png", "image/jpeg"].includes(brand.logoMime)) {
-      const id = book.addImage({
-        filename: path.join(uploadDir, brand.logo),
-        extension: brand.logoMime === "image/png" ? "png" : "jpeg",
-      });
-      sheet.addImage(id, {
-        tl: { col: 12, row: 0 },
-        ext: { width: 90, height: 36 },
-      });
+    book.eachSheet((page) => {
+      page.eachRow((row) =>
+        row.eachCell((cell) => {
+          cell.font = { ...cell.font, name: "Poppins" };
+        }),
+      );
+      if (page !== sheet) {
+        page.getRow(1).font = {
+          name: "Poppins",
+          bold: true,
+          color: { argb: "FFFFFFFF" },
+        };
+        page.getRow(1).fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: "FF" + brand.accent.slice(1) },
+        };
+      }
+    });
+    for (const i of [1, 2, 3]) {
+      const row = sheet.getRow(i);
+      row.font = { ...row.font, name: "Poppins", color: { argb: "FFFFFFFF" } };
+      row.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FF000000" },
+      };
     }
+    const logo = reportLogo(brand);
+    const image = book.addImage({
+      buffer: logo.bytes,
+      extension: logo.mime === "image/png" ? "png" : "jpeg",
+    });
+    sheet.addImage(image, {
+      tl: { col: 12, row: 0.16 },
+      ext: fitLogo(logo.bytes, logo.mime, 145, 32),
+    });
     res
       .type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
       .attachment("MAESTRO-Sponsors.xlsx");
@@ -807,25 +853,31 @@ app.get("/api/export/pdf", (req, res, next) => {
         Author: "MAESTRO",
       },
     });
+    doc.registerFont("Poppins", Buffer.from(officialFonts.regular, "base64"));
+    doc.registerFont(
+      "Poppins-SemiBold",
+      Buffer.from(officialFonts.semibold, "base64"),
+    );
+    const logo = reportLogo(brand);
     res.type("application/pdf").attachment("MAESTRO-Sponsors.pdf");
     doc.on("error", next);
     doc.pipe(res);
     function heading() {
+      doc.rect(0, 0, doc.page.width, 108).fill("#000000");
+      doc.image(logo.bytes, 42, 24, { fit: [145, 32] });
       doc
-        .fillColor(brand.accent)
-        .font("Helvetica-Bold")
-        .fontSize(22)
-        .text("MAESTRO");
-      if (brand.logo && ["image/png", "image/jpeg"].includes(brand.logoMime))
-        doc.image(path.join(uploadDir, brand.logo), 450, 35, { fit: [95, 38] });
+        .fillColor("#FFFFFF")
+        .font("Poppins-SemiBold")
+        .fontSize(13)
+        .text("Digital Government Forum", 42, 63)
+        .font("Poppins")
+        .fontSize(10)
+        .text("Sponsor Management Dashboard | Currency: SAR", 42, 83);
+      doc.rect(0, 108, doc.page.width, 3).fill(brand.accent);
       doc
         .fillColor("#222222")
-        .fontSize(13)
-        .text("Digital Government Forum")
-        .font("Helvetica")
-        .fontSize(10)
-        .text("Sponsor Management Dashboard | Currency: SAR")
-        .text("Exported: " + new Date().toISOString())
+        .fontSize(9)
+        .text("Exported: " + new Date().toISOString(), 42, 125)
         .moveDown();
     }
     heading();
@@ -845,10 +897,10 @@ app.get("/api/export/pdf", (req, res, next) => {
       doc.addPage();
       heading();
       doc
-        .font("Helvetica-Bold")
+        .font("Poppins-SemiBold")
         .fontSize(17)
         .text(s.name)
-        .font("Helvetica")
+        .font("Poppins")
         .fontSize(10)
         .moveDown();
       const lines = [
@@ -869,9 +921,9 @@ app.get("/api/export/pdf", (req, res, next) => {
       for (const [label, value] of lines) doc.text(`${label}: ${value}`);
       doc
         .moveDown()
-        .font("Helvetica-Bold")
+        .font("Poppins-SemiBold")
         .text("Payments Received")
-        .font("Helvetica");
+        .font("Poppins");
       if (!s.payments.length) doc.text("No payments recorded.");
       for (const p of s.payments)
         doc.text(
@@ -879,17 +931,17 @@ app.get("/api/export/pdf", (req, res, next) => {
         );
       doc
         .moveDown()
-        .font("Helvetica-Bold")
+        .font("Poppins-SemiBold")
         .text("Package Benefits")
-        .font("Helvetica");
+        .font("Poppins");
       if (!s.benefits.length) doc.text("No benefits recorded.");
       for (const b of s.benefits)
         doc.text(`${b.completed ? "Completed" : "Pending"}: ${b.title}`);
       doc
         .moveDown()
-        .font("Helvetica-Bold")
+        .font("Poppins-SemiBold")
         .text("Attachments")
-        .font("Helvetica");
+        .font("Poppins");
       if (!s.attachments.length) doc.text("No attachments.");
       for (const a of s.attachments)
         doc.text(
@@ -901,7 +953,7 @@ app.get("/api/export/pdf", (req, res, next) => {
     for (let i = 0; i < range.count; i++) {
       doc.switchToPage(i);
       doc
-        .font("Helvetica")
+        .font("Poppins")
         .fontSize(8)
         .fillColor("#666666")
         .text(`MAESTRO | Page ${i + 1} of ${range.count}`, 42, 800, {

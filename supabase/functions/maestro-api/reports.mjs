@@ -1,5 +1,12 @@
 import { zipSync, strToU8 } from "fflate";
 import { jsPDF } from "jspdf";
+import {
+  resolveBrand,
+  officialLogo,
+  officialFonts,
+  decodeAsset,
+  fitLogo,
+} from "./brand.mjs";
 const xml = (s) =>
   String(s ?? "")
     .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, "")
@@ -53,8 +60,9 @@ const col = (i) => {
   return s;
 };
 export async function reports(format, sponsors, brand) {
+  brand = resolveBrand(brand);
   let logo = null;
-  if (brand.logoUrl) {
+  if (brand.logoUrl && !brand.logoIsDefault) {
     const response = await fetch(brand.logoUrl);
     if (response.ok) {
       const type = response.headers.get("content-type");
@@ -65,6 +73,9 @@ export async function reports(format, sponsors, brand) {
         };
     }
   }
+  logo ||= { bytes: decodeAsset(officialLogo.base64), ext: "png" };
+  const logoSize = (width, height) =>
+    fitLogo(logo.bytes, "image/" + logo.ext, width, height);
   const total =
     sponsors.reduce((n, s) => n + Math.round(s.value * 100), 0) / 100;
   const received =
@@ -133,7 +144,7 @@ export async function reports(format, sponsors, brand) {
     );
     add(
       "xl/styles.xml",
-      `<styleSheet xmlns="${ns}"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><color rgb="FFFFFFFF"/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF${brand.accent.slice(1).toUpperCase()}"/></patternFill></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFill="1" applyFont="1"/><xf numFmtId="4" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs></styleSheet>`,
+      `<styleSheet xmlns="${ns}"><fonts count="2"><font><sz val="11"/><name val="Poppins"/></font><font><b/><color rgb="FFFFFFFF"/><sz val="11"/><name val="Poppins"/></font></fonts><fills count="4"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF${brand.accent.slice(1).toUpperCase()}"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF000000"/></patternFill></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="4"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFill="1" applyFont="1"/><xf numFmtId="4" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="0" fontId="1" fillId="3" borderId="0" xfId="0" applyFill="1" applyFont="1"/></cellXfs></styleSheet>`,
     );
     sheets.forEach((s, i) => {
       content += `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`;
@@ -147,12 +158,12 @@ export async function reports(format, sponsors, brand) {
       const cells = rows
         .map(
           (r, n) =>
-            `<row r="${n + 1}">${r.map((v, c) => (typeof v === "number" ? `<c r="${col(c)}${n + 1}" s="2"><v>${v}</v></c>` : `<c r="${col(c)}${n + 1}" t="inlineStr" s="${n === 3 ? 1 : 0}"><is><t xml:space="preserve">${xml(v)}</t></is></c>`)).join("")}</row>`,
+            `<row r="${n + 1}"${n < 3 ? ' ht="28" customHeight="1"' : ""}>${(n < 3 ? Array.from({ length: s.headers.length }, (_, c) => r[c] || "") : r).map((v, c) => (typeof v === "number" ? `<c r="${col(c)}${n + 1}" s="2"><v>${v}</v></c>` : `<c r="${col(c)}${n + 1}" t="inlineStr" s="${n < 3 ? 3 : n === 3 ? 1 : 0}"><is><t xml:space="preserve">${xml(v)}</t></is></c>`)).join("")}</row>`,
         )
         .join("");
       add(
         `xl/worksheets/sheet${i + 1}.xml`,
-        `<worksheet xmlns="${ns}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheetViews><sheetView workbookViewId="0"><pane ySplit="4" topLeftCell="A5" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols><col min="1" max="${s.headers.length}" width="27" customWidth="1"/></cols><sheetData>${cells}</sheetData><autoFilter ref="A4:${col(s.headers.length - 1)}${Math.max(4, rows.length)}"/>${logo && i === 0 ? '<drawing r:id="logo"/>' : ""}</worksheet>`,
+        `<worksheet xmlns="${ns}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheetViews><sheetView workbookViewId="0"><pane ySplit="4" topLeftCell="A5" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols><col min="1" max="${s.headers.length}" width="27" customWidth="1"/></cols><sheetData>${cells}</sheetData><autoFilter ref="A4:${col(s.headers.length - 1)}${Math.max(4, rows.length)}"/><mergeCells count="3">${[1, 2, 3].map((n) => `<mergeCell ref="A${n}:${col(s.headers.length - 1)}${n}"/>`).join("")}</mergeCells>${logo && i === 0 ? '<drawing r:id="logo"/>' : ""}</worksheet>`,
       );
     });
     if (logo) {
@@ -168,7 +179,7 @@ export async function reports(format, sponsors, brand) {
       );
       add(
         "xl/drawings/drawing1.xml",
-        '<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><xdr:oneCellAnchor><xdr:from><xdr:col>5</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>0</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:ext cx="1371600" cy="457200"/><xdr:pic><xdr:nvPicPr><xdr:cNvPr id="1" name="MAESTRO"/><xdr:cNvPicPr/></xdr:nvPicPr><xdr:blipFill><a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="image"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill><xdr:spPr><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic><xdr:clientData/></xdr:oneCellAnchor></xdr:wsDr>',
+        `<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><xdr:oneCellAnchor><xdr:from><xdr:col>${sheets[0].headers.length - 2}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>0</xdr:row><xdr:rowOff>38100</xdr:rowOff></xdr:from><xdr:ext cx="${Math.round(logoSize(145, 32).width * 9525)}" cy="${Math.round(logoSize(145, 32).height * 9525)}"/><xdr:pic><xdr:nvPicPr><xdr:cNvPr id="1" name="MAESTRO"/><xdr:cNvPicPr/></xdr:nvPicPr><xdr:blipFill><a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="image"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill><xdr:spPr><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic><xdr:clientData/></xdr:oneCellAnchor></xdr:wsDr>`,
       );
     }
     add(
@@ -181,26 +192,33 @@ export async function reports(format, sponsors, brand) {
     };
   }
   const doc = new jsPDF({ compress: true });
+  doc.addFileToVFS("Poppins-Regular.ttf", officialFonts.regular);
+  doc.addFont("Poppins-Regular.ttf", "Poppins", "normal");
+  doc.addFileToVFS("Poppins-SemiBold.ttf", officialFonts.semibold);
+  doc.addFont("Poppins-SemiBold.ttf", "Poppins", "bold");
+  doc.setFont("Poppins", "normal");
   let y = 0;
   const heading = () => {
-    doc.setTextColor(brand.accent);
-    doc.setFontSize(17);
-    doc.text("MAESTRO", 15, 18);
+    doc.setFillColor("#000000");
+    doc.rect(0, 0, doc.internal.pageSize.getWidth(), 40, "F");
+    doc.setTextColor("#FFFFFF");
+    doc.addImage(
+      logo.bytes,
+      logo.ext === "png" ? "PNG" : "JPEG",
+      15,
+      9,
+      logoSize(48, 12).width,
+      logoSize(48, 12).height,
+    );
+    doc.setFont("Poppins", "normal");
     doc.setFontSize(11);
     doc.text("Digital Government Forum — Sponsor Management Dashboard", 15, 26);
-    if (logo)
-      doc.addImage(
-        logo.bytes,
-        logo.ext === "png" ? "PNG" : "JPEG",
-        155,
-        10,
-        35,
-        12,
-      );
-    doc.setTextColor("#222222");
     doc.setFontSize(10);
     doc.text("Currency: SAR", 15, 34);
-    y = 44;
+    doc.setFillColor(brand.accent);
+    doc.rect(0, 40, doc.internal.pageSize.getWidth(), 1, "F");
+    doc.setTextColor("#222222");
+    y = 49;
   };
   const line = (text) => {
     const lines = doc.splitTextToSize(String(text), 178);
@@ -219,8 +237,10 @@ export async function reports(format, sponsors, brand) {
   for (const s of sponsors) {
     doc.addPage();
     heading();
+    doc.setFont("Poppins", "bold");
     doc.setFontSize(14);
     line(s.name);
+    doc.setFont("Poppins", "normal");
     doc.setFontSize(10);
     columns.forEach((c, i) =>
       line(

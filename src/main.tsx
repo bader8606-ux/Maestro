@@ -46,6 +46,8 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import "./styles.css";
+import "./identity.css";
+import { originalIdentity } from "./brand";
 import { api, request, attachmentUrl, connectionMissing } from "./api";
 
 type User = {
@@ -94,7 +96,16 @@ type Brand = {
   accent: string;
   configured: boolean;
   logoUrl: string | null;
+  logoIsDefault?: boolean;
 };
+const workspaceBrand = (brand: Brand): Brand => ({
+  ...brand,
+  logoUrl:
+    brand.logoIsDefault || !brand.logoUrl
+      ? originalIdentity.logoUrl
+      : brand.logoUrl,
+  logoIsDefault: brand.logoIsDefault ?? !brand.logoUrl,
+});
 type Page = "dashboard" | "sponsors" | "packages" | "team" | "brand";
 type Notice = { message: string; error?: boolean };
 const money = (n: number) =>
@@ -319,12 +330,7 @@ function App() {
     [failure, setFailure] = useState("");
   const [sponsors, setSponsors] = useState<Sponsor[]>([]),
     [packages, setPackages] = useState<Package[]>([]),
-    [brand, setBrand] = useState<Brand>({
-      organization: "MAESTRO",
-      accent: "#536b62",
-      configured: false,
-      logoUrl: null,
-    });
+    [brand, setBrand] = useState<Brand>(originalIdentity);
   const [page, setPage] = useState<Page>("dashboard"),
     [notice, setNotice] = useState<Notice | null>(null),
     [active, setActive] = useState<Sponsor | null>(null);
@@ -338,7 +344,7 @@ function App() {
     ]);
     setSponsors(s);
     setPackages(p);
-    setBrand(b);
+    setBrand(workspaceBrand(b));
   };
   const boot = async () => {
     setLoading(true);
@@ -443,11 +449,15 @@ function App() {
     <div className="app-shell">
       <main className="main">
         <header className="single-header">
-          <div className="brand">
+          <div
+            className={
+              "brand " + (brand.logoIsDefault === false ? "custom-logo" : "")
+            }
+          >
             {brand.logoUrl ? (
               <img src={brand.logoUrl} alt="MAESTRO" />
             ) : (
-              <span>MAESTRO</span>
+              <img src={originalIdentity.logoUrl} alt="MAESTRO" />
             )}
             <small>DIGITAL GOVERNMENT FORUM</small>
           </div>
@@ -530,7 +540,7 @@ function App() {
             {page === "brand" && (
               <BrandSettings
                 brand={brand}
-                onChange={setBrand}
+                onChange={(b) => setBrand(workspaceBrand(b))}
                 notify={notify}
               />
             )}
@@ -579,7 +589,7 @@ function Auth({
     <div className="auth-screen">
       <div className="auth-story">
         <div className="brand">
-          <span>MAESTRO</span>
+          <img src={originalIdentity.logoUrl} alt="MAESTRO" />
           <small>PARTNERSHIP WORKSPACE</small>
         </div>
         <div>
@@ -860,14 +870,6 @@ function Dashboard({
                   Independent approval, purchase order & payment tracking
                 </span>
               </div>
-            </div>
-            <div className="hero-art" aria-hidden="true">
-              <div className="orbit o1" />
-              <div className="orbit o2" />
-              <div className="orbit o3" />
-              <div className="orbit o4" />
-              <div className="art-line" />
-              <span className="art-label">CONNECTED BY PURPOSE</span>
             </div>
           </section>
           <section className="stats-grid" aria-label="Sponsor statistics">
@@ -2814,24 +2816,30 @@ function BrandSettings({
       <div className="info-note">
         <Palette size={20} />
         <span>
-          {brand.configured
-            ? "The saved accent color is applied to the workspace and exports."
-            : "Official brand assets have not been configured. The current neutral interface is a temporary presentation, not an official MAESTRO identity."}
+          The supplied MAESTRO logo, slide artwork and Poppins typography are
+          applied throughout your workspace. Saved brand preferences also apply
+          to your exports.
         </span>
       </div>
       <section className="brand-settings table-section">
         <div className="section-title">
           <h3>Official MAESTRO Logo</h3>
           <p>
-            Use the original logo supplied by MAESTRO. PNG or JPEG is
-            recommended for both Excel and PDF exports.
+            The original wordmark from the supplied presentation is included.
+            PNG or JPEG replacements are supported in both Excel and PDF
+            exports.
           </p>
         </div>
-        <div className="brand-preview">
+        <div
+          className={
+            "brand-preview " +
+            (brand.logoIsDefault === false ? "custom-logo" : "")
+          }
+        >
           {brand.logoUrl ? (
             <img src={brand.logoUrl} alt="Official MAESTRO logo" />
           ) : (
-            <span>MAESTRO</span>
+            <img src={originalIdentity.logoUrl} alt="Official MAESTRO logo" />
           )}
         </div>
         <div className="contact-actions">
@@ -2852,23 +2860,27 @@ function BrandSettings({
               }}
             />
           </label>
-          {brand.logoUrl && (
+          {brand.logoUrl && brand.logoIsDefault === false && (
             <button
               className="secondary"
               disabled={busy}
               onClick={async () => {
-                if (!window.confirm("Remove the official workspace logo?"))
+                if (
+                  !window.confirm(
+                    "Restore the original MAESTRO logo from the supplied presentation?",
+                  )
+                )
                   return;
                 try {
                   onChange(await api<Brand>("/brand/logo", "DELETE"));
-                  notify("Logo removed.");
+                  notify("Original MAESTRO logo restored.");
                 } catch (e) {
                   notify((e as Error).message, true);
                 }
               }}
             >
               <Trash2 size={16} />
-              Remove Logo
+              Restore Original Logo
             </button>
           )}
         </div>
@@ -2920,9 +2932,9 @@ function BrandSettings({
         <div className="info-note">
           <FileText size={18} />
           <span>
-            Colors and PNG/JPEG logos appear in English Excel and PDF reports.
-            WebP logos are displayed in the website only. Official fonts require
-            supplied, licensed font files.
+            Reports use the MAESTRO wordmark and Poppins font. Colors and
+            PNG/JPEG replacement logos also appear in English Excel and PDF
+            reports. WebP replacements are displayed in the website only.
           </span>
         </div>
       </section>

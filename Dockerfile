@@ -16,6 +16,7 @@ RUN --mount=type=secret,id=npm_ca \
     npm ci --omit=dev --no-audit --no-fund && mkdir /data && chown node:node /data
 COPY --from=build /app/dist ./dist
 COPY server ./server
+COPY supabase/functions/maestro-api/brand.mjs ./supabase/functions/maestro-api/brand.mjs
 USER node
 VOLUME ["/data"]
 EXPOSE 3000

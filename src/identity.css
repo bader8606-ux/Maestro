@@ -1,0 +1,351 @@
+@font-face {
+  font-family: Poppins;
+  src: url("/brand/fonts/Poppins-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: Poppins;
+  src: url("/brand/fonts/Poppins-Medium.ttf") format("truetype");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: Poppins;
+  src: url("/brand/fonts/Poppins-SemiBold.ttf") format("truetype");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: Poppins;
+  src: url("/brand/fonts/Poppins-Bold.ttf") format("truetype");
+  font-weight: 700 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Exact deck artwork supplies the identity. Neutral surface levels and semantic
+   status colors below support readable controls; they are not brand swatches. */
+:root {
+  color-scheme: dark;
+  font-family:
+    Poppins,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  color: #fff;
+  background: #000;
+  --accent: #0078b5;
+  --accent-text: color-mix(in srgb, var(--accent) 35%, white);
+  --ink: #fff;
+  --paper: #0e1115;
+  --surface: #0e1115;
+  --surface-soft: #171c23;
+  --line: #30363e;
+  --border: #30363e;
+  --muted: #b9c1ca;
+  --text: #fff;
+}
+
+body {
+  background: #000;
+}
+h1,
+h2,
+h3,
+strong {
+  color: var(--ink);
+}
+.primary {
+  color: #fff;
+}
+.secondary {
+  color: #e5e9ee;
+  background: var(--paper);
+}
+.secondary:hover,
+.icon-button:hover,
+tbody tr:hover {
+  background: #1c242d;
+}
+.text-button,
+.nav-item.active {
+  color: var(--accent-text);
+}
+.icon-button,
+.contact-actions a {
+  color: #d4e1ec;
+}
+.single-header {
+  background: #000;
+  border-bottom: 1px solid var(--accent);
+  min-height: 112px;
+}
+.single-header .brand {
+  padding: 0;
+}
+.single-header .brand img {
+  width: 186px;
+  max-width: 186px;
+  max-height: 46px;
+  height: auto;
+}
+.brand small {
+  color: #c6ced7;
+  letter-spacing: 2.2px;
+  line-height: 1.6;
+}
+.single-actions .secondary {
+  border-color: #333b44;
+}
+.custom-logo img {
+  padding: 8px;
+  background: #fff;
+  border-radius: 5px;
+}
+.page-content {
+  padding-top: 38px;
+}
+.heading-row h1 {
+  font-weight: 600;
+  letter-spacing: -0.7px;
+}
+.hero {
+  min-height: 222px;
+  padding: 34px;
+  background-color: #000;
+  background-image:
+    linear-gradient(90deg, #000 5%, #00000080 54%, transparent),
+    url("/brand/maestro-glow.png");
+  background-size: cover;
+  background-position: center;
+  border: 1px solid #263d4b;
+}
+.hero-copy {
+  max-width: 78%;
+}
+.hero h2 {
+  font-weight: 500;
+  font-size: 29px;
+}
+.hero .eyebrow,
+.hero p,
+.hero-bottom > span {
+  color: #e1e7eb;
+}
+.stats-grid {
+  gap: 16px;
+}
+.stat-card {
+  border-top: 2px solid #263d4b;
+  box-shadow: none;
+}
+.stat-icon,
+.stat-2 .stat-icon,
+.stat-4 .stat-icon,
+.stat-5 .stat-icon {
+  background: #152632;
+  color: #b9e4f7;
+}
+.stat-value {
+  font-variant-numeric: tabular-nums;
+}
+.stat-3,
+.stat-4,
+.stat-5 {
+  border-top-color: var(--accent);
+}
+.section-heading h2,
+.record-name h2 {
+  color: #fff;
+}
+.count-pill {
+  background: #123344;
+  color: #d6effa;
+}
+.search-field,
+.filters select,
+.field input,
+.field select,
+.field textarea {
+  color: #fff;
+  background-color: #11171e;
+  border-color: #414b58;
+}
+.search-field input {
+  color: #fff;
+}
+input::placeholder,
+textarea::placeholder {
+  color: #a5afbb;
+}
+.filters select,
+.field select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='none' stroke='%23bec7d2' stroke-width='1.5' d='m1 1 5 5 5-5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 12px 8px;
+}
+.badge {
+  border: 1px solid #424b57;
+  background: #20262e;
+  color: #d9e0e8;
+}
+.badge.green {
+  background: #10343f;
+  color: #b6e6ef;
+  border-color: #2d5b67;
+}
+.badge.amber {
+  background: #3b2b16;
+  color: #efc38b;
+  border-color: #755328;
+}
+.empty-icon,
+.auth-symbol,
+.workspace-tip,
+.info-note {
+  background: #122632;
+  color: #c5e6f5;
+}
+.info-note,
+.workspace-tip {
+  border-color: #2b485b;
+}
+.empty-icon svg {
+  color: #c5e6f5;
+}
+.inline-alert,
+.toast.error {
+  background: #301d1d;
+  color: #ffc4b9;
+  border-color: #745050;
+}
+.toast {
+  background: #102c37;
+  color: #d7f2fc;
+  border-color: #315d70;
+}
+.modal,
+.complete-record {
+  background: var(--paper);
+}
+.record-fields dd {
+  color: #fff;
+}
+.brand-preview {
+  background: #000;
+  border: 1px solid var(--line);
+  min-height: 150px;
+}
+.brand-preview img {
+  width: min(280px, 100%);
+  height: auto;
+  object-fit: contain;
+}
+.auth-screen {
+  background: #000;
+}
+.auth-story {
+  background: #000 url("/brand/maestro-glow.png") center / cover no-repeat;
+  padding: 52px 60px;
+  border-right: 1px solid #253540;
+}
+.auth-story::after {
+  display: none;
+}
+.auth-story .brand img {
+  width: 260px;
+  max-height: none;
+  height: auto;
+}
+.auth-story h1 {
+  font-weight: 500;
+  font-size: clamp(35px, 3.3vw, 52px);
+  line-height: 1.35;
+}
+.auth-story p,
+.auth-story .eyebrow,
+.auth-story .brand small,
+.auth-foot {
+  color: #e3e9ee;
+}
+.auth-panel {
+  background: #080b10;
+}
+.auth-card {
+  width: 390px;
+}
+.auth-card input {
+  color: #fff;
+  background: #11171e;
+}
+.auth-card > p,
+.auth-security,
+.auth-card .eyebrow,
+.auth-card .field > span {
+  color: #c0c9d4;
+}
+.auth-card h2 {
+  color: #fff;
+  font-weight: 600;
+}
+.auth-symbol {
+  border: 1px solid #2b485b;
+}
+.auth-submit {
+  min-height: 50px;
+}
+.loading-screen {
+  color: #fff;
+  background: #000;
+}
+@media (max-width: 1000px) {
+  .single-header {
+    gap: 18px;
+  }
+  .auth-story {
+    padding: 40px;
+  }
+}
+@media (max-width: 760px) {
+  .auth-story {
+    min-height: 300px;
+    padding: 28px;
+    border-right: 0;
+    border-bottom: 1px solid #253540;
+    background-position: center 58%;
+  }
+  .auth-story .brand img {
+    width: 190px;
+  }
+  .auth-story h1 {
+    font-size: 30px;
+    margin: 20px 0;
+  }
+  .auth-story p {
+    max-width: 350px;
+    font-size: 12px;
+  }
+  .auth-panel {
+    padding: 35px 24px;
+  }
+  .hero {
+    padding: 24px;
+    background-position: 57% center;
+  }
+  .hero-copy {
+    max-width: 100%;
+  }
+  .hero h2 {
+    font-size: 23px;
+  }
+  .stat-value {
+    font-size: 24px;
+  }
+}

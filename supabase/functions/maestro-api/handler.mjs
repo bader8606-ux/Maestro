@@ -6,6 +6,7 @@ import {
   accessSchema,
 } from "./validation.mjs";
 import { reports } from "./reports.mjs";
+import { resolveBrand, officialLogoUrl } from "./brand.mjs";
 const bucket = "maestro-files";
 /** @returns {never} */
 const fail = (message, status = 400) => {
@@ -58,7 +59,11 @@ export function createHandler(db, { origins = [] } = {}) {
       table(db, "settings").select("data").eq("id", "brand").single(),
     );
     const { logoPath, logoMime, ...data } = row.data;
-    return { ...data, logoUrl: await signed(logoPath) };
+    return {
+      ...resolveBrand(data),
+      logoUrl: logoPath ? await signed(logoPath) : officialLogoUrl,
+      logoIsDefault: !logoPath,
+    };
   };
   const list = async (factory) => {
     const result = [];
