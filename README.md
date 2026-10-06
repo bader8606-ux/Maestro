@@ -1,6 +1,6 @@
 # MAESTRO — Digital Government Forum
 
-One shared English-only, left-to-right page for viewing and editing sponsor details. The summary table and full sponsor records stay on the page; editing, packages, access and branding open in dialogs. The application starts with **zero sponsors**. The Supabase deployment includes the seven packages provided in the user's sponsorship PDF; local SQLite starts without packages. No sponsor names, contact details, payments or documents are seeded.
+One shared left-to-right page for viewing and editing sponsor details. Navigation, fields and actions use English; sponsor and package benefits have separate **Arabic Benefits** and **English Benefits** sections. Arabic descriptions use RTL direction within their section. Both translations describe one commitment and share its completion status. The summary table and full sponsor records stay on the page; editing, packages, access and branding open in dialogs. New local workspaces start empty. The Supabase deployment includes the seven packages provided in the user's sponsorship PDF. Real sponsor records are imported only when supplied and authorized by the workspace owner.
 
 ## Publish the shared page with GitHub Pages and free Supabase
 
@@ -47,6 +47,8 @@ SQLite stores users, password hashes, sessions, sponsor records, package definit
 Default persistent location: `/workspace/maestro-data` (outside the Git checkout). Set `DATA_DIR` to a mounted persistent volume in a deployment. Keep this directory and its SQLite WAL files together. To back up the complete workspace, stop the application, archive the entire data directory securely, then restart. Restore the entire directory with its original permissions. Environment publication snapshots are separate from live data backups.
 
 Approval status, purchase order issuance and payments are independent. Outstanding balance uses integer-cent calculations. Overpayments are retained and produce a negative outstanding balance. Updating a package does not overwrite a sponsor's copied benefits. Concurrent edits return a conflict instead of silently overwriting another user's changes.
+
+A sponsorship amount may be **Not determined**, for example an in-kind contribution whose scope is pending. This is stored as `null`, separate from an agreed zero amount. Add its description under **Sponsorship Consideration**. Receipts remain real recorded payments; its outstanding balance remains undetermined until an amount is agreed. Summary values and balances include known amounts only; **Total Received** includes all actual receipts. Excel/PDF preserve undetermined amounts and both benefit languages. Poppins remains the MAESTRO identity font; licensed DejaVu Sans supplies Arabic glyphs on the page and in reports.
 
 Each attachment can be PNG, JPEG, WebP or PDF, at most 10 MB; a batch contains at most 10 files. Uploads are authenticated and their file signatures are checked. Replacement preserves the attachment's sponsor and section. Deletion requires confirmation in the interface. The browser supplies PDF preview support; files can also be downloaded and viewed externally.
 

@@ -61,6 +61,7 @@ type Package = {
   id: string;
   name: string;
   benefits: string[];
+  benefitsAr?: string[];
   referenceValue?: number;
 };
 type Attachment = {
@@ -88,14 +89,20 @@ type Sponsor = {
   poIssued: boolean;
   poNumber: string;
   poDate: string;
-  value: number;
+  value: number | null;
+  consideration?: string;
   payments: { id: string; amount: number; date: string; note: string }[];
-  benefits: { id: string; title: string; completed: boolean }[];
+  benefits: {
+    id: string;
+    title: string;
+    titleAr?: string;
+    completed: boolean;
+  }[];
   notes: string;
   updatedAt: string;
   revision: number;
   received: number;
-  outstanding: number;
+  outstanding: number | null;
   attachments: Attachment[];
 };
 type Brand = {
@@ -115,11 +122,13 @@ const workspaceBrand = (brand: Brand): Brand => ({
 });
 type Page = "dashboard" | "sponsors" | "packages" | "team" | "brand";
 type Notice = { message: string; error?: boolean };
-const money = (n: number) =>
-  new Intl.NumberFormat("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(n);
+const money = (n: number | null) =>
+  n === null
+    ? "Not determined"
+    : new Intl.NumberFormat("en-US", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(n);
 const timestamp = (s: string) =>
   s
     ? new Intl.DateTimeFormat("en-GB", {
@@ -149,6 +158,7 @@ const newSponsor = (): Sponsor => ({
   poNumber: "",
   poDate: "",
   value: 0,
+  consideration: "",
   payments: [],
   benefits: [],
   notes: "",
@@ -747,9 +757,13 @@ function Dashboard({
       (!po || s.poIssued === (po === "yes")),
   );
   const total =
-      sponsors.reduce((a, s) => a + Math.round(s.value * 100), 0) / 100,
+      sponsors.reduce((a, s) => a + Math.round((s.value ?? 0) * 100), 0) / 100,
     received =
       sponsors.reduce((a, s) => a + Math.round(s.received * 100), 0) / 100;
+  const outstanding =
+    sponsors.reduce((a, s) => a + Math.round((s.outstanding ?? 0) * 100), 0) /
+    100;
+  const undetermined = sponsors.filter((s) => s.value === null).length;
   const stats: {
     label: string;
     value: string;
@@ -781,7 +795,9 @@ function Dashboard({
       label: "Total Sponsorship Value",
       value: money(total),
       icon: TrendingUp,
-      sub: "Combined sponsorship commitment",
+      sub: undetermined
+        ? `${undetermined} sponsorship value(s) not determined`
+        : "Combined sponsorship commitment",
       currency: true,
     },
     {
@@ -793,9 +809,11 @@ function Dashboard({
     },
     {
       label: "Outstanding Balance",
-      value: money(total - received),
+      value: money(outstanding),
       icon: Clock3,
-      sub: "Sponsorship value less payments",
+      sub: undetermined
+        ? "Balances with an agreed sponsorship value"
+        : "Sponsorship value less payments",
       currency: true,
     },
   ];
@@ -1041,11 +1059,15 @@ function Dashboard({
                   </td>
                   <td className="numeric">
                     {money(s.value)}
-                    <small className="currency-label">SAR</small>
+                    {s.value !== null && (
+                      <small className="currency-label">SAR</small>
+                    )}
                   </td>
                   <td className="numeric">
                     {money(s.outstanding)}
-                    <small className="currency-label">SAR</small>
+                    {s.outstanding !== null && (
+                      <small className="currency-label">SAR</small>
+                    )}
                   </td>
                   <td>
                     <IconButton
@@ -1198,9 +1220,16 @@ function CompleteRecord({
         )}
         {item("Purchase Order Number", s.poNumber)}
         {item("Purchase Order Date", day(s.poDate))}
-        {item("Total Sponsorship Value", "SAR " + money(s.value))}
+        {item(
+          "Total Sponsorship Value",
+          s.value === null ? money(null) : "SAR " + money(s.value),
+        )}
+        {s.consideration && item("Sponsorship Consideration", s.consideration)}
         {item("Total Received", "SAR " + money(s.received))}
-        {item("Outstanding Balance", "SAR " + money(s.outstanding))}
+        {item(
+          "Outstanding Balance",
+          s.outstanding === null ? money(null) : "SAR " + money(s.outstanding),
+        )}
       </dl>
       <div className="record-sections">
         <section>
@@ -1218,21 +1247,30 @@ function CompleteRecord({
             <p>No payments recorded.</p>
           )}
         </section>
-        <section>
-          <h3>Package Benefits</h3>
-          {s.benefits.length ? (
-            <ul>
-              {s.benefits.map((b) => (
-                <li key={b.id}>
-                  <Badge status={b.completed ? "Completed" : "Pending"} />
-                  {" " + b.title}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p>No benefits added.</p>
-          )}
-        </section>
+        {(["Arabic Benefits", "English Benefits"] as const).map((heading) => (
+          <section key={heading} className="translated-benefits">
+            <h3>{heading}</h3>
+            {s.benefits.length ? (
+              <ul>
+                {s.benefits.map((b) => (
+                  <li key={b.id}>
+                    <Badge status={b.completed ? "Completed" : "Pending"} />
+                    <span
+                      lang={heading === "Arabic Benefits" ? "ar" : "en"}
+                      dir={heading === "Arabic Benefits" ? "rtl" : "ltr"}
+                    >
+                      {heading === "Arabic Benefits"
+                        ? b.titleAr || "Arabic translation not provided."
+                        : b.title}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>No benefits added.</p>
+            )}
+          </section>
+        ))}
         {(["approval", "purchase-order"] as const).map((kind) => (
           <section key={kind}>
             <h3>
@@ -1385,6 +1423,7 @@ function SponsorPanel({
     [preview, setPreview] = useState<Attachment | null>(null);
   const [payment, setPayment] = useState({ amount: "", date: "", note: "" }),
     [benefit, setBenefit] = useState("");
+  const [benefitAr, setBenefitAr] = useState("");
   const [editingPayment, setEditingPayment] = useState<string | null>(null);
   const [pendingLogo, setPendingLogo] = useState<File | null>(null),
     [pendingLogoUrl, setPendingLogoUrl] = useState("");
@@ -1412,7 +1451,10 @@ function SponsorPanel({
     unsaved = dirty || Boolean(pendingLogo) || pendingDocuments.length > 0,
     paid =
       draft.payments.reduce((a, p) => a + Math.round(p.amount * 100), 0) / 100,
-    balance = (Math.round(draft.value * 100) - Math.round(paid * 100)) / 100;
+    balance =
+      draft.value === null
+        ? null
+        : (Math.round(draft.value * 100) - Math.round(paid * 100)) / 100;
   const set = <K extends keyof Sponsor>(key: K, value: Sponsor[K]) =>
     setDraft((d) => ({ ...d, [key]: value }));
   const accept = (s: Sponsor) => {
@@ -1845,9 +1887,10 @@ function SponsorPanel({
                             "Replace this sponsor’s existing benefits with the selected package’s defaults?",
                           ))
                       )
-                        benefits = pkg.benefits.map((title) => ({
+                        benefits = pkg.benefits.map((title, i) => ({
                           id: crypto.randomUUID(),
                           title,
+                          titleAr: pkg.benefitsAr?.[i] || "",
                           completed: false,
                         }));
                       setDraft((d) => ({
@@ -2143,11 +2186,32 @@ function SponsorPanel({
                     min="0"
                     max="9999999999"
                     step="0.01"
-                    value={draft.value}
-                    disabled={!editable}
+                    value={draft.value ?? ""}
+                    disabled={!editable || draft.value === null}
                     onChange={(e) => set("value", Number(e.target.value))}
                   />
                 </div>
+              </Field>
+              <label className="value-not-determined">
+                <input
+                  type="checkbox"
+                  checked={draft.value === null}
+                  disabled={!editable}
+                  onChange={(e) => set("value", e.target.checked ? null : 0)}
+                />
+                Sponsorship value not determined
+              </label>
+              <Field
+                label="Sponsorship Consideration"
+                hint="Describe an in-kind contribution or scope that is still being agreed."
+              >
+                <textarea
+                  value={draft.consideration || ""}
+                  maxLength={1000}
+                  disabled={!editable}
+                  onChange={(e) => set("consideration", e.target.value)}
+                  rows={2}
+                />
               </Field>
               <div className="financial-cards">
                 <div>
@@ -2160,7 +2224,7 @@ function SponsorPanel({
                 <div>
                   <span>Outstanding Balance</span>
                   <strong>
-                    <small>SAR</small>
+                    {balance !== null && <small>SAR</small>}
                     {money(balance)}
                   </strong>
                 </div>
@@ -2350,67 +2414,104 @@ function SponsorPanel({
                   />
                 </div>
               </div>
-              {draft.benefits.length ? (
-                <div className="benefit-list">
-                  {draft.benefits.map((b) => (
-                    <div
-                      className={
-                        "benefit-row " + (b.completed ? "complete" : "")
-                      }
-                      key={b.id}
-                    >
-                      <input
-                        type="checkbox"
-                        aria-label={"Mark " + b.title + " complete"}
-                        checked={b.completed}
-                        disabled={!editable}
-                        onChange={(e) =>
-                          set(
-                            "benefits",
-                            draft.benefits.map((x) =>
-                              x.id === b.id
-                                ? { ...x, completed: e.target.checked }
-                                : x,
-                            ),
-                          )
-                        }
-                      />
-                      <input
-                        aria-label="Benefit description"
-                        value={b.title}
-                        maxLength={300}
-                        disabled={!editable}
-                        onChange={(e) =>
-                          set(
-                            "benefits",
-                            draft.benefits.map((x) =>
-                              x.id === b.id
-                                ? { ...x, title: e.target.value }
-                                : x,
-                            ),
-                          )
-                        }
-                      />
-                      <span className="benefit-status">
-                        {b.completed ? "Completed" : "Pending"}
-                      </span>
-                      {editable && (
-                        <IconButton
-                          icon={Trash2}
-                          label="Remove benefit"
-                          onClick={() =>
-                            set(
-                              "benefits",
-                              draft.benefits.filter((x) => x.id !== b.id),
-                            )
-                          }
-                        />
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="quiet-empty">No package benefits added.</div>
+              {(["Arabic Benefits", "English Benefits"] as const).map(
+                (heading) => (
+                  <section className="benefit-language-section" key={heading}>
+                    <h3>{heading}</h3>
+                    {draft.benefits.length ? (
+                      <div className="benefit-list">
+                        {draft.benefits.map((b) => (
+                          <div
+                            className={
+                              "benefit-row " + (b.completed ? "complete" : "")
+                            }
+                            key={b.id}
+                          >
+                            <input
+                              type="checkbox"
+                              aria-label={
+                                heading === "Arabic Benefits"
+                                  ? "Mark Arabic translation for " +
+                                    b.title +
+                                    " complete"
+                                  : "Mark " + b.title + " complete"
+                              }
+                              checked={b.completed}
+                              disabled={!editable}
+                              onChange={(e) =>
+                                set(
+                                  "benefits",
+                                  draft.benefits.map((x) =>
+                                    x.id === b.id
+                                      ? { ...x, completed: e.target.checked }
+                                      : x,
+                                  ),
+                                )
+                              }
+                            />
+                            <input
+                              aria-label={
+                                heading === "Arabic Benefits"
+                                  ? "Arabic benefit description"
+                                  : "Benefit description"
+                              }
+                              value={
+                                heading === "Arabic Benefits"
+                                  ? b.titleAr || ""
+                                  : b.title
+                              }
+                              lang={heading === "Arabic Benefits" ? "ar" : "en"}
+                              dir={
+                                heading === "Arabic Benefits" ? "rtl" : "ltr"
+                              }
+                              placeholder={
+                                heading === "Arabic Benefits"
+                                  ? "Add the Arabic translation"
+                                  : "Describe the benefit"
+                              }
+                              maxLength={300}
+                              disabled={!editable}
+                              onChange={(e) =>
+                                set(
+                                  "benefits",
+                                  draft.benefits.map((x) =>
+                                    x.id === b.id
+                                      ? {
+                                          ...x,
+                                          [heading === "Arabic Benefits"
+                                            ? "titleAr"
+                                            : "title"]: e.target.value,
+                                        }
+                                      : x,
+                                  ),
+                                )
+                              }
+                            />
+                            <span className="benefit-status">
+                              {b.completed ? "Completed" : "Pending"}
+                            </span>
+                            {editable && heading === "English Benefits" && (
+                              <IconButton
+                                icon={Trash2}
+                                label="Remove benefit"
+                                onClick={() =>
+                                  set(
+                                    "benefits",
+                                    draft.benefits.filter((x) => x.id !== b.id),
+                                  )
+                                }
+                              />
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="quiet-empty">
+                        No package benefits added.
+                      </div>
+                    )}
+                  </section>
+                ),
               )}
               {editable && (
                 <div className="inline-add">
@@ -2420,6 +2521,15 @@ function SponsorPanel({
                     maxLength={300}
                     onChange={(e) => setBenefit(e.target.value)}
                     placeholder="Describe a package benefit"
+                  />
+                  <input
+                    aria-label="New Arabic benefit"
+                    lang="ar"
+                    dir="rtl"
+                    value={benefitAr}
+                    maxLength={300}
+                    onChange={(e) => setBenefitAr(e.target.value)}
+                    placeholder="Arabic translation"
                   />
                   <button
                     type="button"
@@ -2431,10 +2541,12 @@ function SponsorPanel({
                         {
                           id: crypto.randomUUID(),
                           title: benefit.trim(),
+                          titleAr: benefitAr.trim(),
                           completed: false,
                         },
                       ]);
                       setBenefit("");
+                      setBenefitAr("");
                     }}
                   >
                     <Plus size={16} />
@@ -2446,7 +2558,8 @@ function SponsorPanel({
                 <Layers3 size={18} />
                 <span>
                   These benefits belong to this sponsor. Editing package
-                  defaults does not overwrite existing commitments.
+                  defaults does not overwrite existing commitments. English and
+                  Arabic descriptions share the same completion status.
                 </span>
               </div>
             </>
@@ -2709,6 +2822,7 @@ function Packages({
     [benefit, setBenefit] = useState(""),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
+  const [benefitAr, setBenefitAr] = useState("");
   return (
     <>
       <div className="heading-row">
@@ -2726,6 +2840,7 @@ function Packages({
             onClick={() => {
               setActive({ id: "", name: "", benefits: [] });
               setBenefit("");
+              setBenefitAr("");
               setError("");
             }}
           >
@@ -2756,6 +2871,7 @@ function Packages({
                       onClick={() => {
                         setActive(structuredClone(p));
                         setBenefit("");
+                        setBenefitAr("");
                         setError("");
                       }}
                     >
@@ -2791,6 +2907,23 @@ function Packages({
               <span className="muted">
                 {p.benefits.length} package benefits
               </span>
+              <h3>Arabic Benefits</h3>
+              {p.benefitsAr?.some((b) => b.trim()) ? (
+                <ul>
+                  {p.benefits.map((_, i) => (
+                    <li key={i}>
+                      <Check size={16} />
+                      <span lang="ar" dir="rtl">
+                        {p.benefitsAr?.[i] ||
+                          "Arabic translation not provided."}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="muted">Arabic translations not provided.</p>
+              )}
+              <h3>English Benefits</h3>
               <ul>
                 {p.benefits.map((b, i) => (
                   <li key={i}>
@@ -2815,7 +2948,12 @@ function Packages({
               editable ? (
                 <button
                   className="primary"
-                  onClick={() => setActive({ id: "", name: "", benefits: [] })}
+                  onClick={() => {
+                    setActive({ id: "", name: "", benefits: [] });
+                    setBenefit("");
+                    setBenefitAr("");
+                    setError("");
+                  }}
                 >
                   <Plus size={17} />
                   Add Package
@@ -2907,6 +3045,22 @@ function Packages({
                     })
                   }
                 />
+                <input
+                  aria-label={"Arabic default benefit " + (i + 1)}
+                  lang="ar"
+                  dir="rtl"
+                  maxLength={300}
+                  placeholder="Arabic translation"
+                  value={active.benefitsAr?.[i] || ""}
+                  onChange={(e) =>
+                    setActive({
+                      ...active,
+                      benefitsAr: active.benefits.map((_, j) =>
+                        i === j ? e.target.value : active.benefitsAr?.[j] || "",
+                      ),
+                    })
+                  }
+                />
                 <IconButton
                   icon={Trash2}
                   label="Remove default benefit"
@@ -2914,6 +3068,9 @@ function Packages({
                     setActive({
                       ...active,
                       benefits: active.benefits.filter((_, j) => j !== i),
+                      benefitsAr: active.benefits
+                        .map((_, j) => active.benefitsAr?.[j] || "")
+                        .filter((_, j) => j !== i),
                     })
                   }
                 />
@@ -2927,6 +3084,15 @@ function Packages({
                 onChange={(e) => setBenefit(e.target.value)}
                 placeholder="Describe a default benefit"
               />
+              <input
+                aria-label="New Arabic default benefit"
+                lang="ar"
+                dir="rtl"
+                value={benefitAr}
+                maxLength={300}
+                onChange={(e) => setBenefitAr(e.target.value)}
+                placeholder="Arabic translation"
+              />
               <button
                 type="button"
                 className="secondary"
@@ -2935,8 +3101,15 @@ function Packages({
                   setActive({
                     ...active,
                     benefits: [...active.benefits, benefit.trim()],
+                    benefitsAr: [
+                      ...active.benefits.map(
+                        (_, i) => active.benefitsAr?.[i] || "",
+                      ),
+                      benefitAr.trim(),
+                    ],
                   });
                   setBenefit("");
+                  setBenefitAr("");
                 }}
               >
                 <Plus size={16} />

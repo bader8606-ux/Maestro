@@ -165,7 +165,7 @@ await test("Persistent sponsor management workflow", async (t) => {
           await (await request("/export/pdf")).arrayBuffer(),
         );
         assert.ok(
-          emptyPdf.toString("latin1").includes("Poppins-Regular"),
+          emptyPdf.toString("latin1").includes("/BaseFont /Poppins"),
           "PDF names the supplied Poppins font.",
         );
         assert.ok(

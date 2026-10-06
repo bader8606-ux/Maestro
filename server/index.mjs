@@ -20,13 +20,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import ExcelJS from "exceljs";
-import PDFDocument from "pdfkit";
 import {
   resolveBrand,
   officialLogo,
-  officialFonts,
   fitLogo,
 } from "../supabase/functions/maestro-api/brand.mjs";
+import { reports } from "../supabase/functions/maestro-api/reports.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dataDir = path.resolve(process.env.DATA_DIR || "/workspace/maestro-data");
@@ -278,6 +277,7 @@ app.patch("/api/users/:id", admin, (req, res) => {
 const benefit = z.object({
   id: z.string().uuid(),
   title: z.string().trim().min(1).max(300),
+  titleAr: z.string().trim().max(300).optional(),
   completed: z.boolean(),
 });
 const money = z
@@ -320,7 +320,8 @@ const sponsorSchema = z.object({
   poIssued: z.boolean(),
   poNumber: z.string().trim().max(100),
   poDate: date,
-  value: money,
+  value: money.nullable(),
+  consideration: z.string().trim().max(1000).optional(),
   payments: z
     .array(
       z.object({
@@ -352,7 +353,8 @@ function sponsor(row) {
     revision: row.revision,
     packageName: pkg ? JSON.parse(pkg.data).name : "",
     received: received(s),
-    outstanding: (cents(s.value) - cents(received(s))) / 100,
+    outstanding:
+      s.value === null ? null : (cents(s.value) - cents(received(s))) / 100,
     attachments: db
       .prepare(
         "SELECT id,sponsor_id AS sponsorId,kind,name,mime,size,created_at AS createdAt FROM attachments WHERE sponsor_id=? ORDER BY created_at",
@@ -424,11 +426,23 @@ app.delete("/api/sponsors/:id", edit, (req, res) => {
       unlinkSync(path.join(uploadDir, f.file));
   res.json({ ok: true });
 });
-const packageSchema = z.object({
-  name: z.string().trim().min(1).max(100),
-  benefits: z.array(z.string().trim().min(1).max(300)).max(100),
-  referenceValue: money.optional(),
-});
+const packageSchema = z
+  .object({
+    name: z.string().trim().min(1).max(100),
+    benefits: z.array(z.string().trim().min(1).max(300)).max(300),
+    benefitsAr: z.array(z.string().trim().max(300)).max(300).optional(),
+    referenceValue: money.optional(),
+  })
+  .refine(
+    (input) =>
+      !input.benefitsAr?.length ||
+      input.benefitsAr.length === input.benefits.length,
+    {
+      message:
+        "Provide an Arabic entry for each English benefit, or leave the Arabic list empty.",
+      path: ["benefitsAr"],
+    },
+  );
 app.get("/api/packages", (req, res) =>
   res.json(
     db
@@ -708,13 +722,13 @@ app.get("/api/export/excel", async (req, res, next) => {
     const sheet = book.addWorksheet("Sponsors", {
       views: [{ state: "frozen", ySplit: 4 }],
     });
-    sheet.mergeCells("A1:N1");
+    sheet.mergeCells("A1:O1");
     sheet.getCell("A1").value = "MAESTRO | Digital Government Forum";
     sheet.getCell("A1").font = { size: 20, bold: true };
     sheet.getRow(1).height = 36;
-    sheet.mergeCells("A2:N2");
+    sheet.mergeCells("A2:O2");
     sheet.getCell("A2").value = "Sponsor Management Dashboard — Currency: SAR";
-    sheet.mergeCells("A3:N3");
+    sheet.mergeCells("A3:O3");
     sheet.getCell("A3").value = "Exported: " + new Date().toISOString();
     sheet.addRow([
       "Sponsor Name",
@@ -731,6 +745,7 @@ app.get("/api/export/excel", async (req, res, next) => {
       "Total Received",
       "Outstanding Balance",
       "Last Updated",
+      "Consideration",
     ]);
     sheet.getRow(4).font = { bold: true, color: { argb: "FFFFFFFF" } };
     sheet.getRow(4).fill = {
@@ -750,14 +765,15 @@ app.get("/api/export/excel", async (req, res, next) => {
         s.poIssued ? "Yes" : "No",
         s.poNumber,
         s.poDate,
-        s.value,
+        s.value === null ? "Not determined" : s.value,
         s.received,
-        s.outstanding,
+        s.outstanding === null ? "Not determined" : s.outstanding,
         s.updatedAt,
+        s.consideration || "",
       ]);
-    for (let i = 1; i <= 14; i++) sheet.getColumn(i).width = i === 1 ? 32 : 24;
+    for (let i = 1; i <= 15; i++) sheet.getColumn(i).width = i === 1 ? 32 : 24;
     for (const col of [11, 12, 13]) sheet.getColumn(col).numFmt = "#,##0.00";
-    sheet.autoFilter = "A4:N" + Math.max(4, sponsors.length + 4);
+    sheet.autoFilter = "A4:O" + Math.max(4, sponsors.length + 4);
     const payments = book.addWorksheet("Payments");
     payments.addRow([
       "Sponsor Name",
@@ -771,12 +787,18 @@ app.get("/api/export/excel", async (req, res, next) => {
     payments.getColumn(2).numFmt = "#,##0.00";
     payments.columns.forEach((c) => (c.width = 30));
     const benefits = book.addWorksheet("Package Benefits");
-    benefits.addRow(["Sponsor Name", "Benefit", "Status"]);
+    benefits.addRow([
+      "Sponsor Name",
+      "Benefit (English)",
+      "Benefit (Arabic)",
+      "Status",
+    ]);
     for (const s of sponsors)
       for (const b of s.benefits)
         benefits.addRow([
           s.name,
           b.title,
+          b.titleAr || "",
           b.completed ? "Completed" : "Pending",
         ]);
     benefits.columns.forEach((c) => (c.width = 35));
@@ -815,6 +837,19 @@ app.get("/api/export/excel", async (req, res, next) => {
         };
       }
     });
+    benefits.eachRow((row, rowNumber) => {
+      if (rowNumber > 1 && row.getCell(3).value) {
+        row.getCell(3).font = {
+          ...row.getCell(3).font,
+          name: "DejaVu Sans",
+        };
+        row.getCell(3).alignment = {
+          horizontal: "right",
+          readingOrder: "rtl",
+          wrapText: true,
+        };
+      }
+    });
     for (const i of [1, 2, 3]) {
       const row = sheet.getRow(i);
       row.font = { ...row.font, name: "Poppins", color: { argb: "FFFFFFFF" } };
@@ -841,127 +876,20 @@ app.get("/api/export/excel", async (req, res, next) => {
     next(e);
   }
 });
-app.get("/api/export/pdf", (req, res, next) => {
+app.get("/api/export/pdf", async (req, res, next) => {
   try {
     const sponsors = exportRows(req);
     const brand = getBrand();
-    const doc = new PDFDocument({
-      size: "A4",
-      margin: 42,
-      bufferPages: true,
-      info: {
-        Title: "Digital Government Forum — Sponsor Management Dashboard",
-        Author: "MAESTRO",
-      },
-    });
-    doc.registerFont("Poppins", Buffer.from(officialFonts.regular, "base64"));
-    doc.registerFont(
-      "Poppins-SemiBold",
-      Buffer.from(officialFonts.semibold, "base64"),
-    );
     const logo = reportLogo(brand);
-    res.type("application/pdf").attachment("MAESTRO-Sponsors.pdf");
-    doc.on("error", next);
-    doc.pipe(res);
-    function heading() {
-      doc.rect(0, 0, doc.page.width, 108).fill("#000000");
-      doc.image(logo.bytes, 42, 24, { fit: [145, 32] });
-      doc
-        .fillColor("#FFFFFF")
-        .font("Poppins-SemiBold")
-        .fontSize(13)
-        .text("Digital Government Forum", 42, 63)
-        .font("Poppins")
-        .fontSize(10)
-        .text("Sponsor Management Dashboard | Currency: SAR", 42, 83);
-      doc.rect(0, 108, doc.page.width, 3).fill(brand.accent);
-      doc
-        .fillColor("#222222")
-        .fontSize(9)
-        .text("Exported: " + new Date().toISOString(), 42, 125)
-        .moveDown();
-    }
-    heading();
-    const total = sponsors.reduce((a, s) => a + s.value, 0);
-    const paid = sponsors.reduce((a, s) => a + s.received, 0);
-    doc
-      .text(
-        `Total Sponsors: ${sponsors.length} | Approved Sponsors: ${sponsors.filter((s) => s.approval === "Approved").length} | Purchase Orders Issued: ${sponsors.filter((s) => s.poIssued).length}`,
-      )
-      .text(`Total Sponsorship Value: SAR ${currency(total)}`)
-      .text(
-        `Total Received: SAR ${currency(paid)} | Outstanding Balance: SAR ${currency(total - paid)}`,
-      )
-      .moveDown();
-    if (!sponsors.length) doc.text("No sponsor records.");
-    for (const s of sponsors) {
-      doc.addPage();
-      heading();
-      doc
-        .font("Poppins-SemiBold")
-        .fontSize(17)
-        .text(s.name)
-        .font("Poppins")
-        .fontSize(10)
-        .moveDown();
-      const lines = [
-        ["Sponsorship Package", s.packageName || "Not assigned"],
-        ["Contact Person", s.contact || "Not provided"],
-        ["Mobile Number", s.mobile || "Not provided"],
-        ["Email Address", s.email || "Not provided"],
-        ["Approval Status", s.approval],
-        ["Approval Date", s.approvalDate || "Not provided"],
-        ["Purchase Order Issued", s.poIssued ? "Yes" : "No"],
-        ["Purchase Order Number", s.poNumber || "Not provided"],
-        ["Purchase Order Date", s.poDate || "Not provided"],
-        ["Total Sponsorship Value", "SAR " + currency(s.value)],
-        ["Total Received", "SAR " + currency(s.received)],
-        ["Outstanding Balance", "SAR " + currency(s.outstanding)],
-        ["Last Updated", s.updatedAt],
-      ];
-      for (const [label, value] of lines) doc.text(`${label}: ${value}`);
-      doc
-        .moveDown()
-        .font("Poppins-SemiBold")
-        .text("Payments Received")
-        .font("Poppins");
-      if (!s.payments.length) doc.text("No payments recorded.");
-      for (const p of s.payments)
-        doc.text(
-          `${p.date} | SAR ${currency(p.amount)}${p.note ? " | " + p.note : ""}`,
-        );
-      doc
-        .moveDown()
-        .font("Poppins-SemiBold")
-        .text("Package Benefits")
-        .font("Poppins");
-      if (!s.benefits.length) doc.text("No benefits recorded.");
-      for (const b of s.benefits)
-        doc.text(`${b.completed ? "Completed" : "Pending"}: ${b.title}`);
-      doc
-        .moveDown()
-        .font("Poppins-SemiBold")
-        .text("Attachments")
-        .font("Poppins");
-      if (!s.attachments.length) doc.text("No attachments.");
-      for (const a of s.attachments)
-        doc.text(
-          `${a.kind === "purchase-order" ? "Purchase Order" : a.kind === "approval" ? "Approval" : "Sponsor Logo"}: ${a.name}`,
-        );
-      if (s.notes) doc.moveDown().text("Notes: " + s.notes);
-    }
-    const range = doc.bufferedPageRange();
-    for (let i = 0; i < range.count; i++) {
-      doc.switchToPage(i);
-      doc
-        .font("Poppins")
-        .fontSize(8)
-        .fillColor("#666666")
-        .text(`MAESTRO | Page ${i + 1} of ${range.count}`, 42, 800, {
-          lineBreak: false,
-        });
-    }
-    doc.end();
+    const output = await reports("pdf", sponsors, {
+      ...brand,
+      logoIsDefault: false,
+      logoUrl: "data:" + logo.mime + ";base64," + logo.bytes.toString("base64"),
+    });
+    res
+      .type(output.mime)
+      .attachment("MAESTRO-Sponsors.pdf")
+      .send(Buffer.from(output.bytes));
   } catch (e) {
     next(e);
   }

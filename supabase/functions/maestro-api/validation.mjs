@@ -2,6 +2,7 @@ import { z } from "zod";
 const benefit = z.object({
   id: z.string().uuid(),
   title: z.string().trim().min(1).max(300),
+  titleAr: z.string().trim().max(300).optional(),
   completed: z.boolean(),
 });
 const money = z
@@ -44,7 +45,8 @@ export const sponsorSchema = z.object({
   poIssued: z.boolean(),
   poNumber: z.string().trim().max(100),
   poDate: date,
-  value: money,
+  value: money.nullable(),
+  consideration: z.string().trim().max(1000).optional(),
   payments: z
     .array(
       z.object({
@@ -62,11 +64,23 @@ export const sponsorSchema = z.object({
   notes: z.string().max(3000),
 });
 
-export const packageSchema = z.object({
-  name: z.string().trim().min(1).max(100),
-  benefits: z.array(z.string().trim().min(1).max(300)).max(300),
-  referenceValue: money.optional(),
-});
+export const packageSchema = z
+  .object({
+    name: z.string().trim().min(1).max(100),
+    benefits: z.array(z.string().trim().min(1).max(300)).max(300),
+    benefitsAr: z.array(z.string().trim().max(300)).max(300).optional(),
+    referenceValue: money.optional(),
+  })
+  .refine(
+    (input) =>
+      !input.benefitsAr?.length ||
+      input.benefitsAr.length === input.benefits.length,
+    {
+      message:
+        "Provide an Arabic entry for each English benefit, or leave the Arabic list empty.",
+      path: ["benefitsAr"],
+    },
+  );
 export const userSchema = z.object({
   name: z.string().trim().min(1).max(100),
   email: z.string().email(),

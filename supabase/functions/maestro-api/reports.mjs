@@ -1,5 +1,6 @@
 import { zipSync, strToU8 } from "fflate";
 import { jsPDF } from "jspdf";
+import { arabicFont } from "./arabic-font.mjs";
 import {
   resolveBrand,
   officialLogo,
@@ -14,6 +15,11 @@ const xml = (s) =>
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+const hasArabic = (text) =>
+  /[\u0600-\u06ff\u0750-\u077f\u08a0-\u08ff\ufb50-\ufdff\ufe70-\ufeff]/.test(
+    String(text),
+  );
+const amount = (value) => (value == null ? "Not determined" : value);
 const money = (n) =>
   new Intl.NumberFormat("en-US", {
     minimumFractionDigits: 2,
@@ -35,6 +41,7 @@ const columns = [
   "Outstanding Balance (SAR)",
   "Last Updated",
   "Notes",
+  "Consideration",
 ];
 const values = (s) => [
   s.name,
@@ -47,11 +54,12 @@ const values = (s) => [
   s.poIssued ? "Yes" : "No",
   s.poNumber,
   s.poDate,
-  s.value,
+  amount(s.value),
   s.received,
-  s.outstanding,
+  amount(s.outstanding),
   s.updatedAt,
   s.notes,
+  s.consideration || "",
 ];
 const col = (i) => {
   let s = "";
@@ -77,10 +85,20 @@ export async function reports(format, sponsors, brand) {
   const logoSize = (width, height) =>
     fitLogo(logo.bytes, "image/" + logo.ext, width, height);
   const total =
-    sponsors.reduce((n, s) => n + Math.round(s.value * 100), 0) / 100;
+    sponsors.reduce(
+      (n, s) => n + (s.value == null ? 0 : Math.round(s.value * 100)),
+      0,
+    ) / 100;
   const received =
     sponsors.reduce((n, s) => n + Math.round(s.received * 100), 0) / 100;
-  const summary = `Sponsors: ${sponsors.length} | Total Value: SAR ${money(total)} | Total Received: SAR ${money(received)} | Outstanding: SAR ${money((Math.round(total * 100) - Math.round(received * 100)) / 100)}`;
+  const outstanding =
+    sponsors.reduce(
+      (n, s) =>
+        n + (s.outstanding == null ? 0 : Math.round(s.outstanding * 100)),
+      0,
+    ) / 100;
+  const unknown = sponsors.filter((s) => s.value == null).length;
+  const summary = `Sponsors: ${sponsors.length} | Total Value${unknown ? " (known amounts)" : ""}: SAR ${money(total)} | Total Received: SAR ${money(received)} | Outstanding${unknown ? " (known amounts)" : ""}: SAR ${money(outstanding)}${unknown ? ` | Undetermined values: ${unknown}` : ""}`;
   const sheets = [
     { name: "Sponsors", headers: columns, rows: sponsors.map(values) },
     {
@@ -92,9 +110,19 @@ export async function reports(format, sponsors, brand) {
     },
     {
       name: "Package Benefits",
-      headers: ["Sponsor Name", "Benefit", "Completed"],
+      headers: [
+        "Sponsor Name",
+        "Benefit (English)",
+        "Benefit (Arabic)",
+        "Status",
+      ],
       rows: sponsors.flatMap((s) =>
-        s.benefits.map((b) => [s.name, b.title, b.completed ? "Yes" : "No"]),
+        s.benefits.map((b) => [
+          s.name,
+          b.title,
+          b.titleAr || "",
+          b.completed ? "Completed" : "Pending",
+        ]),
       ),
     },
     {
@@ -144,7 +172,7 @@ export async function reports(format, sponsors, brand) {
     );
     add(
       "xl/styles.xml",
-      `<styleSheet xmlns="${ns}"><fonts count="2"><font><sz val="11"/><name val="Poppins"/></font><font><b/><color rgb="FFFFFFFF"/><sz val="11"/><name val="Poppins"/></font></fonts><fills count="4"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF${brand.accent.slice(1).toUpperCase()}"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF000000"/></patternFill></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="4"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFill="1" applyFont="1"/><xf numFmtId="4" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="0" fontId="1" fillId="3" borderId="0" xfId="0" applyFill="1" applyFont="1"/></cellXfs></styleSheet>`,
+      `<styleSheet xmlns="${ns}"><fonts count="3"><font><sz val="11"/><name val="Poppins"/></font><font><b/><color rgb="FFFFFFFF"/><sz val="11"/><name val="Poppins"/></font><font><sz val="11"/><name val="DejaVu Sans"/></font></fonts><fills count="4"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF${brand.accent.slice(1).toUpperCase()}"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF000000"/></patternFill></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="5"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFill="1" applyFont="1"/><xf numFmtId="4" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="0" fontId="1" fillId="3" borderId="0" xfId="0" applyFill="1" applyFont="1"/><xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="right" readingOrder="2" wrapText="1"/></xf></cellXfs></styleSheet>`,
     );
     sheets.forEach((s, i) => {
       content += `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`;
@@ -158,7 +186,7 @@ export async function reports(format, sponsors, brand) {
       const cells = rows
         .map(
           (r, n) =>
-            `<row r="${n + 1}"${n < 3 ? ' ht="28" customHeight="1"' : ""}>${(n < 3 ? Array.from({ length: s.headers.length }, (_, c) => r[c] || "") : r).map((v, c) => (typeof v === "number" ? `<c r="${col(c)}${n + 1}" s="2"><v>${v}</v></c>` : `<c r="${col(c)}${n + 1}" t="inlineStr" s="${n < 3 ? 3 : n === 3 ? 1 : 0}"><is><t xml:space="preserve">${xml(v)}</t></is></c>`)).join("")}</row>`,
+            `<row r="${n + 1}"${n < 3 ? ' ht="28" customHeight="1"' : ""}>${(n < 3 ? Array.from({ length: s.headers.length }, (_, c) => r[c] || "") : r).map((v, c) => (typeof v === "number" ? `<c r="${col(c)}${n + 1}" s="2"><v>${v}</v></c>` : `<c r="${col(c)}${n + 1}" t="inlineStr" s="${n < 3 ? 3 : n === 3 ? 1 : hasArabic(v) ? 4 : 0}"><is><t xml:space="preserve">${xml(v)}</t></is></c>`)).join("")}</row>`,
         )
         .join("");
       add(
@@ -196,6 +224,10 @@ export async function reports(format, sponsors, brand) {
   doc.addFont("Poppins-Regular.ttf", "Poppins", "normal");
   doc.addFileToVFS("Poppins-SemiBold.ttf", officialFonts.semibold);
   doc.addFont("Poppins-SemiBold.ttf", "Poppins", "bold");
+  if (sponsors.some((s) => hasArabic(JSON.stringify(s)))) {
+    doc.addFileToVFS(arabicFont.filename, arabicFont.base64);
+    doc.addFont(arabicFont.filename, arabicFont.family, "normal");
+  }
   doc.setFont("Poppins", "normal");
   let y = 0;
   const heading = () => {
@@ -220,16 +252,32 @@ export async function reports(format, sponsors, brand) {
     doc.setTextColor("#222222");
     y = 49;
   };
-  const line = (text) => {
+  const line = (text, { rtl = false } = {}) => {
+    const currentFont = doc.getFont();
+    const fontSize = doc.getFontSize();
+    const family = hasArabic(text) ? arabicFont.family : currentFont.fontName;
+    const style = hasArabic(text) ? "normal" : currentFont.fontStyle;
+    doc.setFont(family, style);
     const lines = doc.splitTextToSize(String(text), 178);
     for (const l of lines) {
       if (y > 275) {
         doc.addPage();
         heading();
+        doc.setFont(family, style);
+        doc.setFontSize(fontSize);
       }
-      doc.text(l, 15, y);
+      doc.text(l, rtl ? 193 : 15, y, {
+        align: rtl ? "right" : "left",
+        isInputVisual: false,
+        isInputRtl: rtl,
+        isOutputVisual: true,
+        isOutputRtl: false,
+        isSymmetricSwapping: true,
+      });
       y += 6;
     }
+    doc.setFont(currentFont.fontName, currentFont.fontStyle);
+    doc.setFontSize(fontSize);
   };
   heading();
   line(summary);
@@ -252,10 +300,22 @@ export async function reports(format, sponsors, brand) {
     s.payments.forEach((p) =>
       line(`SAR ${money(p.amount)} | ${p.date} | ${p.note}`),
     );
-    line("Package Benefits");
-    s.benefits.forEach((b) =>
-      line(`${b.completed ? "Completed" : "Pending"}: ${b.title}`),
+    line("Package Benefits — English");
+    if (!s.benefits.length) line("No benefits recorded.");
+    s.benefits.forEach((b, index) =>
+      line(
+        `${index + 1}. ${b.completed ? "Completed" : "Pending"}: ${b.title}`,
+      ),
     );
+    line("Package Benefits — Arabic");
+    if (!s.benefits.some((b) => b.titleAr))
+      line("No Arabic benefits recorded.");
+    else
+      s.benefits.forEach((b, index) => {
+        line(`Benefit ${index + 1} — ${b.completed ? "Completed" : "Pending"}`);
+        if (b.titleAr) line(b.titleAr, { rtl: true });
+        else line("Arabic text not provided.");
+      });
     line("Attachments");
     s.attachments.forEach((a) => line(`${a.kind}: ${a.name}`));
   }

@@ -7,6 +7,7 @@ import {
 } from "./validation.mjs";
 import { reports } from "./reports.mjs";
 import { resolveBrand, officialLogoUrl } from "./brand.mjs";
+import { publicImportKey } from "./import-key.mjs";
 const bucket = "maestro-files";
 /** @returns {never} */
 const fail = (message, status = 400) => {
@@ -124,7 +125,9 @@ export function createHandler(db, { origins = [] } = {}) {
           packages.find((p) => p.id === r.package_id)?.data.name || "",
         received,
         outstanding:
-          (Math.round(s.value * 100) - Math.round(received * 100)) / 100,
+          s.value === null
+            ? null
+            : (Math.round(s.value * 100) - Math.round(received * 100)) / 100,
         attachments: files.filter((a) => a.sponsorId === r.id),
       };
     });
@@ -185,6 +188,11 @@ export function createHandler(db, { origins = [] } = {}) {
           table(db, "settings").select("id").eq("id", "brand").single(),
         );
         return json({ setupRequired: false, storage: "Supabase" });
+      }
+      if (path === "/import-key" && method === "GET") {
+        const key = await publicImportKey(db);
+        if (!key) fail("Workspace import key is unavailable.", 404);
+        return json(key);
       }
       const token = req.headers
         .get("Authorization")

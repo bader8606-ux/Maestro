@@ -27,6 +27,35 @@
   font-display: swap;
 }
 
+@font-face {
+  font-family: ArabicFallback;
+  src: url("/brand/fonts/DejaVuSans.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+[lang="ar"] {
+  font-family: ArabicFallback, sans-serif;
+}
+.translated-benefits [lang="ar"] {
+  flex: 1;
+  text-align: right;
+  line-height: 1.8;
+}
+.benefit-language-section {
+  margin: 24px 0;
+}
+.benefit-language-section h3 {
+  font-size: 14px;
+  margin-bottom: 14px;
+}
+.value-not-determined {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  margin-bottom: 20px;
+}
 /* Exact deck artwork supplies the identity. Neutral surface levels and semantic
    status colors below support readable controls; they are not brand swatches. */
 :root {
