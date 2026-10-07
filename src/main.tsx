@@ -1218,11 +1218,13 @@ function CompleteRecord({
     <article className="complete-record">
       <header>
         <div className="record-name">
-          <SponsorAvatar sponsor={s} />
-          <div>
-            <h2>{s.name}</h2>
-            <small>Last Updated: {timestamp(s.updatedAt)}</small>
-          </div>
+          <SponsorLogoDisplay
+            sponsorName={s.name}
+            logo={s.attachments.find((a) => a.kind === "logo")}
+            preview={setPreview}
+            nameHeading
+          />
+          <small>Last Updated: {timestamp(s.updatedAt)}</small>
         </div>
         <button className="secondary" onClick={open}>
           <Pencil size={16} />
@@ -1384,6 +1386,117 @@ function CompleteRecord({
   );
 }
 
+type LogoBackground = "light" | "dark";
+function LogoBackgroundControls({
+  background,
+  change,
+}: {
+  background: LogoBackground;
+  change: (background: LogoBackground) => void;
+}) {
+  return (
+    <div
+      className="logo-background-controls"
+      role="group"
+      aria-label="Logo background"
+    >
+      {(["light", "dark"] as const).map((value) => (
+        <button
+          type="button"
+          key={value}
+          className="logo-background-option"
+          aria-label={
+            value === "light" ? "Light background" : "Dark background"
+          }
+          aria-pressed={background === value}
+          onClick={() => change(value)}
+        >
+          <span
+            className={"logo-background-swatch logo-background-" + value}
+            aria-hidden="true"
+          />
+          {value === "light" ? "Light" : "Dark"}
+        </button>
+      ))}
+    </div>
+  );
+}
+function SponsorLogoDisplay({
+  sponsorName,
+  logo,
+  pending = false,
+  busy = false,
+  choose,
+  preview,
+  nameHeading = false,
+}: {
+  sponsorName: string;
+  logo?: Attachment;
+  pending?: boolean;
+  busy?: boolean;
+  choose?: () => void;
+  preview: (attachment: Attachment) => void;
+  nameHeading?: boolean;
+}) {
+  const [background, setBackground] = useState<LogoBackground>("light");
+  const contents = logo ? (
+    <img src={attachmentUrl(logo)} alt={(sponsorName || "Sponsor") + " logo"} />
+  ) : pending ? (
+    <span className="sponsor-logo-empty">
+      <LoaderCircle size={22} className="spin" />
+      <span>Preparing preview...</span>
+    </span>
+  ) : (
+    <span className="sponsor-logo-empty">
+      {choose ? <Upload size={22} /> : <Building2 size={22} />}
+      <span>No logo uploaded</span>
+    </span>
+  );
+  return (
+    <div
+      className="sponsor-logo-display"
+      data-logo-state={pending ? "pending" : logo ? "saved" : "empty"}
+    >
+      {logo || choose ? (
+        <button
+          type="button"
+          className={
+            "sponsor-logo-frame logo-picker logo-background-" + background
+          }
+          aria-label={logo ? "Preview sponsor logo" : "Choose sponsor logo"}
+          title={logo ? "Preview sponsor logo" : "Choose sponsor logo"}
+          disabled={busy || (pending && !logo)}
+          onClick={() => (logo ? preview(logo) : choose?.())}
+        >
+          {contents}
+        </button>
+      ) : (
+        <div className={"sponsor-logo-frame logo-background-" + background}>
+          {contents}
+        </div>
+      )}
+      {nameHeading ? (
+        <h2 className="sponsor-logo-name">{sponsorName}</h2>
+      ) : (
+        <strong className="sponsor-logo-name">
+          {sponsorName || "Sponsor name not entered"}
+        </strong>
+      )}
+      <LogoBackgroundControls background={background} change={setBackground} />
+      {choose && (
+        <button
+          type="button"
+          className="secondary sponsor-logo-action"
+          disabled={busy}
+          onClick={choose}
+        >
+          <Upload size={15} />
+          {logo || pending ? "Change Logo" : "Upload Logo"}
+        </button>
+      )}
+    </div>
+  );
+}
 function SponsorAvatar({ sponsor }: { sponsor: Sponsor }) {
   const logo = sponsor.attachments.find((a) => a.kind === "logo");
   return (
@@ -1489,7 +1602,12 @@ function SponsorPanel({
   const [benefitAr, setBenefitAr] = useState("");
   const [editingPayment, setEditingPayment] = useState<string | null>(null);
   const [pendingLogo, setPendingLogo] = useState<File | null>(null),
-    [pendingLogoUrl, setPendingLogoUrl] = useState("");
+    [pendingLogoPreview, setPendingLogoPreview] = useState<{
+      file: File;
+      url: string;
+    } | null>(null);
+  const pendingLogoUrl =
+    pendingLogoPreview?.file === pendingLogo ? pendingLogoPreview.url : "";
   const logoInput = useRef<HTMLInputElement>(null);
   const [pendingDocuments, setPendingDocuments] = useState<PendingDocument[]>(
     [],
@@ -1504,11 +1622,11 @@ function SponsorPanel({
   const uncertainUploads = useRef<Partial<Record<DocumentKind, Sponsor>>>({});
   useEffect(() => {
     if (!pendingLogo) {
-      setPendingLogoUrl("");
+      setPendingLogoPreview(null);
       return;
     }
     const url = URL.createObjectURL(pendingLogo);
-    setPendingLogoUrl(url);
+    setPendingLogoPreview({ file: pendingLogo, url });
     return () => URL.revokeObjectURL(url);
   }, [pendingLogo]);
   const selectedPackage = packages.find((p) => p.id === draft.packageId);
@@ -1806,6 +1924,26 @@ function SponsorPanel({
     }
   };
   const logo = draft.attachments.find((a) => a.kind === "logo");
+  const displayedLogo: Attachment | undefined = pendingLogo
+    ? pendingLogoUrl
+      ? {
+          id: "pending-logo",
+          sponsorId: draft.id,
+          kind: "logo",
+          name: pendingLogo.name,
+          mime:
+            pendingLogo.type ||
+            (/\.webp$/i.test(pendingLogo.name)
+              ? "image/webp"
+              : /\.jpe?g$/i.test(pendingLogo.name)
+                ? "image/jpeg"
+                : "image/png"),
+          size: pendingLogo.size,
+          createdAt: new Date(pendingLogo.lastModified).toISOString(),
+          url: pendingLogoUrl,
+        }
+      : undefined
+    : logo;
   const attachmentCard = (a: Attachment) => (
     <div className="attachment-card" key={a.id}>
       <button
@@ -2042,62 +2180,21 @@ function SponsorPanel({
                 <div className="field">
                   <span>Sponsor Logo</span>
                   <div className="logo-upload">
-                    {editable ? (
-                      <button
-                        type="button"
-                        className="logo-picker"
-                        aria-label="Choose sponsor logo"
-                        title="Choose sponsor logo"
-                        disabled={busy}
-                        onClick={() => logoInput.current?.click()}
-                      >
-                        {pendingLogoUrl ? (
-                          <img
-                            src={pendingLogoUrl}
-                            alt="Selected sponsor logo"
-                          />
-                        ) : logo ? (
-                          <img src={attachmentUrl(logo)} alt="Sponsor logo" />
-                        ) : (
-                          <Upload size={24} />
-                        )}
-                      </button>
-                    ) : logo ? (
-                      <img src={attachmentUrl(logo)} alt="Sponsor logo" />
-                    ) : (
-                      <Building2 size={26} />
+                    <SponsorLogoDisplay
+                      sponsorName={draft.name}
+                      logo={displayedLogo}
+                      pending={Boolean(pendingLogo)}
+                      busy={busy}
+                      choose={
+                        editable ? () => logoInput.current?.click() : undefined
+                      }
+                      preview={setPreview}
+                    />
+                    {pendingLogo && (
+                      <span className="sponsor-logo-filename">
+                        {pendingLogo.name}
+                      </span>
                     )}
-                    <div>
-                      {pendingLogo ? (
-                        <span>{pendingLogo.name}</span>
-                      ) : logo ? (
-                        <button
-                          type="button"
-                          className="text-button"
-                          onClick={() => setPreview(logo)}
-                        >
-                          View logo
-                        </button>
-                      ) : (
-                        <span>No logo uploaded</span>
-                      )}
-                      {editable && (
-                        <button
-                          type="button"
-                          className="text-button sponsor-logo-action"
-                          disabled={busy}
-                          aria-label={
-                            logo || pendingLogo
-                              ? "Replace Sponsor Logo"
-                              : "Upload Sponsor Logo"
-                          }
-                          onClick={() => logoInput.current?.click()}
-                        >
-                          <Upload size={15} />
-                          {logo || pendingLogo ? "Replace logo" : "Upload logo"}
-                        </button>
-                      )}
-                    </div>
                     {editable && (
                       <input
                         ref={logoInput}
@@ -2857,9 +2954,11 @@ function Preview({
   close: () => void;
 }) {
   const [zoom, setZoom] = useState(1);
+  const [background, setBackground] = useState<LogoBackground>("light");
+  const isLogo = attachment.kind === "logo";
   return (
     <div
-      className="preview-overlay"
+      className={"preview-overlay" + (isLogo ? " logo-preview" : "")}
       role="dialog"
       aria-modal="true"
       aria-label={"Preview " + attachment.name}
@@ -2867,6 +2966,12 @@ function Preview({
       <div className="preview-toolbar">
         <strong>{attachment.name}</strong>
         <div>
+          {isLogo && (
+            <LogoBackgroundControls
+              background={background}
+              change={setBackground}
+            />
+          )}
           {attachment.mime.startsWith("image/") && (
             <>
               <IconButton
@@ -2886,13 +2991,20 @@ function Preview({
             className="icon-button"
             href={attachmentUrl(attachment, true)}
             aria-label="Download attachment"
+            download={
+              attachment.url?.startsWith("blob:") ? attachment.name : undefined
+            }
           >
             <Download size={18} />
           </a>
           <IconButton icon={X} label="Close preview" onClick={close} />
         </div>
       </div>
-      <div className="preview-body">
+      <div
+        className={
+          "preview-body" + (isLogo ? " logo-background-" + background : "")
+        }
+      >
         {attachment.mime.startsWith("image/") ? (
           <img
             src={attachmentUrl(attachment)}

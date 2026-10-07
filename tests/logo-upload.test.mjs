@@ -114,9 +114,9 @@ await test("Sponsor logo controls choose, save, replace and retry real uploads",
       .waitFor();
     let sponsorId, attachmentId, dialog;
     const selectedPreview = () =>
-      dialog.getByRole("img", { name: "Selected sponsor logo", exact: true });
+      dialog.locator('.sponsor-logo-display[data-logo-state="pending"] img');
     const currentLogo = () =>
-      dialog.getByRole("img", { name: "Sponsor logo", exact: true });
+      dialog.locator('.sponsor-logo-display[data-logo-state="saved"] img');
     const waitForLoadedImage = async (image) => {
       await image.waitFor();
       await image.evaluate((element) => {
@@ -252,7 +252,7 @@ await test("Sponsor logo controls choose, save, replace and retry real uploads",
         await chooseFile(
           page,
           dialog.getByRole("button", {
-            name: "Replace Sponsor Logo",
+            name: "Change Logo",
             exact: true,
           }),
           replacementLogo,
@@ -294,7 +294,7 @@ await test("Sponsor logo controls choose, save, replace and retry real uploads",
         await chooseFile(
           page,
           dialog.getByRole("button", {
-            name: "Replace Sponsor Logo",
+            name: "Change Logo",
             exact: true,
           }),
           retryLogo,
@@ -360,7 +360,7 @@ await test("Sponsor logo controls choose, save, replace and retry real uploads",
         await chooseFile(
           page,
           dialog.getByRole("button", {
-            name: "Choose sponsor logo",
+            name: "Change Logo",
             exact: true,
           }),
           replacementLogo,
@@ -416,7 +416,7 @@ await test("Sponsor logo controls choose, save, replace and retry real uploads",
         await chooseFile(
           page,
           dialog.getByRole("button", {
-            name: "Replace Sponsor Logo",
+            name: "Change Logo",
             exact: true,
           }),
           {
@@ -435,7 +435,7 @@ await test("Sponsor logo controls choose, save, replace and retry real uploads",
         await chooseFile(
           page,
           dialog.getByRole("button", {
-            name: "Replace Sponsor Logo",
+            name: "Change Logo",
             exact: true,
           }),
           { name: "oversized.png", mimeType: "image/png", buffer: oversized },
@@ -473,12 +473,13 @@ await test("Sponsor logo controls choose, save, replace and retry real uploads",
           .click();
         const viewerDialog = viewer.getByRole("dialog").last();
         await viewerDialog
-          .getByRole("img", { name: "Sponsor logo", exact: true })
+          .locator('.sponsor-logo-display[data-logo-state="saved"]')
+          .getByRole("img", { name: "Logo fixture retry logo", exact: true })
           .waitFor();
         assert.equal(
           await viewerDialog
             .getByRole("button", {
-              name: /Choose sponsor logo|Upload Sponsor Logo|Replace Sponsor Logo/,
+              name: /Choose sponsor logo|Upload Logo|Change Logo/,
             })
             .count(),
           0,

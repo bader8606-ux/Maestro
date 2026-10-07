@@ -14,10 +14,20 @@ const cloud = cloudMode
     })
   : null;
 export const attachmentUrl = (
-  a: { id: string; url?: string; createdAt?: string },
+  a: { id: string; url?: string; createdAt?: string; name?: string },
   download = false,
 ) => {
-  if (a.url) return a.url;
+  if (a.url) {
+    if (download && /^https?:\/\//.test(a.url)) {
+      const signed = new URL(a.url);
+      // Supabase supports download disposition on an existing signed link.
+      if (signed.pathname.startsWith("/storage/v1/object/sign/")) {
+        signed.searchParams.set("download", a.name || "");
+        return signed.toString();
+      }
+    }
+    return a.url;
+  }
   const query = new URLSearchParams();
   if (download) query.set("download", "1");
   // Replacement preserves the ID; a new URL refreshes already loaded images.
