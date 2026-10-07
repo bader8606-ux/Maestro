@@ -395,6 +395,50 @@ textarea::placeholder {
   color: #fff;
   background: #000;
 }
+.booth-files {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+.booth-file {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
+.booth-file-preview {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 8px;
+  border: 1px solid #2b3541;
+  border-radius: 8px;
+  color: inherit;
+  background: #0c1118;
+  text-align: left;
+  cursor: pointer;
+}
+.booth-file-preview img {
+  width: 100%;
+  height: 80px;
+  object-fit: contain;
+  background: #151b23;
+}
+.booth-file-preview span {
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.booth-file > .icon-button {
+  flex-shrink: 0;
+}
+.booth-file-hint {
+  color: #c0c9d4;
+  font-size: 12px;
+}
 @media (max-width: 1000px) {
   .single-header {
     gap: 18px;

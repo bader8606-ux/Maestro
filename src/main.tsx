@@ -64,17 +64,35 @@ type Package = {
   benefitsAr?: string[];
   referenceValue?: number;
 };
+const documentKinds = [
+  "approval",
+  "purchase-order",
+  "booth-location",
+  "booth-design",
+] as const;
+type DocumentKind = (typeof documentKinds)[number];
+const documentNames: Record<DocumentKind, string> = {
+  approval: "approval",
+  "purchase-order": "purchase order",
+  "booth-location": "booth location",
+  "booth-design": "booth design",
+};
+const documentHeadings: Record<DocumentKind, string> = {
+  approval: "Approval Attachments",
+  "purchase-order": "Purchase Order Attachments",
+  "booth-location": "Booth Location Attachments",
+  "booth-design": "Booth Design Attachments",
+};
 type Attachment = {
   id: string;
   sponsorId: string;
-  kind: "approval" | "purchase-order" | "logo";
+  kind: DocumentKind | "logo";
   name: string;
   mime: string;
   size: number;
   createdAt: string;
   url?: string;
 };
-type DocumentKind = "approval" | "purchase-order";
 type PendingDocument = { id: string; kind: DocumentKind; file: File };
 type Sponsor = {
   id: string;
@@ -89,6 +107,8 @@ type Sponsor = {
   poIssued: boolean;
   poNumber: string;
   poDate: string;
+  boothSize?: string;
+  boothLocation?: string;
   value: number | null;
   consideration?: string;
   payments: { id: string; amount: number; date: string; note: string }[];
@@ -157,6 +177,8 @@ const newSponsor = (): Sponsor => ({
   poIssued: false,
   poNumber: "",
   poDate: "",
+  boothSize: "",
+  boothLocation: "",
   value: 0,
   consideration: "",
   payments: [],
@@ -1160,6 +1182,38 @@ function CompleteRecord({
       <dd>{value || "Not provided"}</dd>
     </div>
   );
+  const boothFiles = (kind: "booth-location" | "booth-design") => {
+    const files = s.attachments.filter((a) => a.kind === kind);
+    return files.length ? (
+      <div className="booth-files">
+        {files.map((a) => (
+          <div className="booth-file" key={a.id}>
+            <button
+              className="booth-file-preview"
+              onClick={() => setPreview(a)}
+              aria-label={"Preview " + a.name}
+            >
+              {a.mime.startsWith("image/") ? (
+                <img src={attachmentUrl(a)} alt={a.name} loading="lazy" />
+              ) : (
+                <FileText size={24} />
+              )}
+              <span>{a.name}</span>
+            </button>
+            <a
+              className="icon-button"
+              href={attachmentUrl(a, true)}
+              target="_blank"
+              rel="noreferrer"
+              aria-label={"Download " + a.name}
+            >
+              <Download size={15} />
+            </a>
+          </div>
+        ))}
+      </div>
+    ) : null;
+  };
   return (
     <article className="complete-record">
       <header>
@@ -1220,6 +1274,15 @@ function CompleteRecord({
         )}
         {item("Purchase Order Number", s.poNumber)}
         {item("Purchase Order Date", day(s.poDate))}
+        {item("Booth Size", s.boothSize)}
+        {item(
+          "Booth Location",
+          <div>
+            <span>{s.boothLocation || "Not provided"}</span>
+            {boothFiles("booth-location")}
+          </div>,
+        )}
+        {item("Booth Design", boothFiles("booth-design"))}
         {item(
           "Total Sponsorship Value",
           s.value === null ? money(null) : "SAR " + money(s.value),
@@ -1434,6 +1497,8 @@ function SponsorPanel({
   const documentInputs = useRef<Record<DocumentKind, HTMLInputElement | null>>({
     approval: null,
     "purchase-order": null,
+    "booth-location": null,
+    "booth-design": null,
   });
   const replacementInputs = useRef<Record<string, HTMLInputElement | null>>({});
   const uncertainUploads = useRef<Partial<Record<DocumentKind, Sponsor>>>({});
@@ -1575,7 +1640,7 @@ function SponsorPanel({
           );
         }
       }
-      for (const kind of ["approval", "purchase-order"] as const) {
+      for (const kind of documentKinds) {
         let documents = pendingDocuments.filter((d) => d.kind === kind);
         if (!documents.length) continue;
         const uncertain = uncertainUploads.current[kind];
@@ -1622,7 +1687,7 @@ function SponsorPanel({
           await changed();
           throw new Error(
             "Sponsor saved, but " +
-              (kind === "approval" ? "approval" : "purchase order") +
+              documentNames[kind] +
               " attachments could not be uploaded. " +
               (err as Error).message +
               " Your remaining selected files are ready to retry with Save Changes.",
@@ -1812,6 +1877,70 @@ function SponsorPanel({
       </div>
     </div>
   );
+  const renderDocumentSection = (kind: DocumentKind) => (
+    <section className="attachment-section" key={kind}>
+      <div className="attachment-section-header">
+        <h3>{documentHeadings[kind]}</h3>
+        <span className="count-pill">
+          {draft.attachments.filter((a) => a.kind === kind).length}
+        </span>
+      </div>
+      {draft.attachments.filter((a) => a.kind === kind).map(attachmentCard)}
+      {pendingDocuments
+        .filter((d) => d.kind === kind)
+        .map((document) => (
+          <PendingAttachmentCard
+            key={document.id}
+            document={document}
+            sponsorId={draft.id}
+            busy={busy}
+            preview={setPreview}
+            remove={() =>
+              setPendingDocuments((current) =>
+                current.filter((d) => d.id !== document.id),
+              )
+            }
+          />
+        ))}
+      {!draft.attachments.some((a) => a.kind === kind) &&
+        !pendingDocuments.some((d) => d.kind === kind) && (
+          <div className="quiet-empty">
+            No {documentNames[kind]} attachments.
+          </div>
+        )}
+      {editable && (
+        <>
+          <button
+            type="button"
+            className="upload-zone"
+            aria-label={"Choose " + documentNames[kind] + " attachments"}
+            disabled={busy}
+            onClick={() => documentInputs.current[kind]?.click()}
+          >
+            <Upload size={22} />
+            <strong>Choose files to upload</strong>
+            <span>Images or PDF documents</span>
+          </button>
+          <input
+            ref={(input) => {
+              documentInputs.current[kind] = input;
+            }}
+            className="file-input"
+            tabIndex={-1}
+            aria-label={"Upload " + documentNames[kind] + " attachments"}
+            type="file"
+            accept="image/png,image/jpeg,image/webp,application/pdf"
+            multiple
+            disabled={busy}
+            onChange={(e) => {
+              selectDocuments(e.target.files, kind);
+              e.target.value = "";
+            }}
+          />
+        </>
+      )}
+    </section>
+  );
   return (
     <Modal
       title={draft.id ? draft.name : "Add Sponsor"}
@@ -1832,6 +1961,7 @@ function SponsorPanel({
           "Contact Details",
           "Financials",
           "Package Benefits",
+          "Booth Details",
           "Attachments",
         ].map((t) => (
           <button
@@ -2564,6 +2694,60 @@ function SponsorPanel({
               </div>
             </>
           )}
+          {tab === "Booth Details" && (
+            <>
+              <div className="section-title">
+                <h3>Booth Details</h3>
+                <p>
+                  Record the booth dimensions, location and design for this
+                  sponsor.
+                </p>
+              </div>
+              <Field
+                label="Booth Size"
+                hint="Enter dimensions with their unit, for example 6 × 4 m."
+              >
+                <input
+                  value={draft.boothSize ?? ""}
+                  maxLength={200}
+                  disabled={!editable}
+                  onChange={(e) => set("boothSize", e.target.value)}
+                  placeholder="e.g. 6 × 4 m"
+                />
+              </Field>
+              <Field
+                label="Booth Location"
+                hint="Add the hall, zone or booth number, then attach the location image below."
+              >
+                <input
+                  value={draft.boothLocation ?? ""}
+                  maxLength={500}
+                  disabled={!editable}
+                  onChange={(e) => set("boothLocation", e.target.value)}
+                  placeholder="Enter the booth location"
+                />
+              </Field>
+              {editable && (
+                <div className="info-note">
+                  <AlertCircle size={18} />
+                  <span>
+                    Choose location and design files, then use{" "}
+                    {draft.id ? "Save Changes" : "Create Sponsor"} to save them
+                    with this sponsor.
+                    {draft.id &&
+                      unsaved &&
+                      " Save Changes before replacing or deleting saved attachments."}
+                  </span>
+                </div>
+              )}
+              <p className="booth-file-hint">
+                PNG, JPEG, WebP and PDF · Up to 10 MB per file
+              </p>
+              {(["booth-location", "booth-design"] as const).map(
+                renderDocumentSection,
+              )}
+            </>
+          )}
           {tab === "Attachments" && (
             <>
               <div className="section-title">
@@ -2586,89 +2770,9 @@ function SponsorPanel({
                   </span>
                 </div>
               )}
-              {(["approval", "purchase-order"] as const).map((kind) => (
-                <section className="attachment-section" key={kind}>
-                  <div className="attachment-section-header">
-                    <h3>
-                      {kind === "approval"
-                        ? "Approval Attachments"
-                        : "Purchase Order Attachments"}
-                    </h3>
-                    <span className="count-pill">
-                      {draft.attachments.filter((a) => a.kind === kind).length}
-                    </span>
-                  </div>
-                  {draft.attachments
-                    .filter((a) => a.kind === kind)
-                    .map(attachmentCard)}
-                  {pendingDocuments
-                    .filter((d) => d.kind === kind)
-                    .map((document) => (
-                      <PendingAttachmentCard
-                        key={document.id}
-                        document={document}
-                        sponsorId={draft.id}
-                        busy={busy}
-                        preview={setPreview}
-                        remove={() =>
-                          setPendingDocuments((current) =>
-                            current.filter((d) => d.id !== document.id),
-                          )
-                        }
-                      />
-                    ))}
-                  {!draft.attachments.some((a) => a.kind === kind) &&
-                    !pendingDocuments.some((d) => d.kind === kind) && (
-                      <div className="quiet-empty">
-                        No {kind === "approval" ? "approval" : "purchase order"}{" "}
-                        attachments.
-                      </div>
-                    )}
-                  {editable && (
-                    <>
-                      <button
-                        type="button"
-                        className="upload-zone"
-                        aria-label={
-                          "Choose " +
-                          (kind === "approval"
-                            ? "approval"
-                            : "purchase order") +
-                          " attachments"
-                        }
-                        disabled={busy}
-                        onClick={() => documentInputs.current[kind]?.click()}
-                      >
-                        <Upload size={22} />
-                        <strong>Choose files to upload</strong>
-                        <span>Images or PDF documents</span>
-                      </button>
-                      <input
-                        ref={(input) => {
-                          documentInputs.current[kind] = input;
-                        }}
-                        className="file-input"
-                        tabIndex={-1}
-                        aria-label={
-                          "Upload " +
-                          (kind === "approval"
-                            ? "approval"
-                            : "purchase order") +
-                          " attachments"
-                        }
-                        type="file"
-                        accept="image/png,image/jpeg,image/webp,application/pdf"
-                        multiple
-                        disabled={busy}
-                        onChange={(e) => {
-                          selectDocuments(e.target.files, kind);
-                          e.target.value = "";
-                        }}
-                      />
-                    </>
-                  )}
-                </section>
-              ))}
+              {(["approval", "purchase-order"] as const).map(
+                renderDocumentSection,
+              )}
             </>
           )}
           {error && (

@@ -25,6 +25,14 @@ const money = (n) =>
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(n);
+const attachmentSection = (kind) =>
+  ({
+    approval: "Approval Attachments",
+    "purchase-order": "Purchase Order Attachments",
+    logo: "Sponsor Logo",
+    "booth-location": "Booth Location Attachments",
+    "booth-design": "Booth Design Attachments",
+  })[kind] || kind;
 const columns = [
   "Sponsor Name",
   "Sponsorship Package",
@@ -42,6 +50,8 @@ const columns = [
   "Last Updated",
   "Notes",
   "Consideration",
+  "Booth Size",
+  "Booth Location",
 ];
 const values = (s) => [
   s.name,
@@ -60,6 +70,8 @@ const values = (s) => [
   s.updatedAt,
   s.notes,
   s.consideration || "",
+  s.boothSize || "",
+  s.boothLocation || "",
 ];
 const col = (i) => {
   let s = "";
@@ -138,11 +150,7 @@ export async function reports(format, sponsors, brand) {
       rows: sponsors.flatMap((s) =>
         s.attachments.map((a) => [
           s.name,
-          a.kind === "purchase-order"
-            ? "Purchase Order Attachments"
-            : a.kind === "approval"
-              ? "Approval Attachments"
-              : "Sponsor Logo",
+          attachmentSection(a.kind),
           a.name,
           a.mime,
           a.size,
@@ -317,7 +325,9 @@ export async function reports(format, sponsors, brand) {
         else line("Arabic text not provided.");
       });
     line("Attachments");
-    s.attachments.forEach((a) => line(`${a.kind}: ${a.name}`));
+    s.attachments.forEach((a) =>
+      line(`${attachmentSection(a.kind)}: ${a.name}`),
+    );
   }
   return {
     bytes: new Uint8Array(doc.output("arraybuffer")),

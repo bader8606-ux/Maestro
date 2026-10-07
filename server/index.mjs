@@ -322,6 +322,8 @@ const sponsorSchema = z.object({
   poDate: date,
   value: money.nullable(),
   consideration: z.string().trim().max(1000).optional(),
+  boothSize: z.string().trim().max(200).optional(),
+  boothLocation: z.string().trim().max(500).optional(),
   payments: z
     .array(
       z.object({
@@ -348,6 +350,8 @@ function sponsor(row) {
     .get(s.packageId);
   return {
     ...s,
+    boothSize: s.boothSize || "",
+    boothLocation: s.boothLocation || "",
     id: row.id,
     updatedAt: row.updated_at,
     revision: row.revision,
@@ -539,7 +543,13 @@ app.post(
     if (!getSponsor(req.params.id))
       return res.status(404).json({ error: "Sponsor not found." });
     const kind = z
-      .enum(["approval", "purchase-order", "logo"])
+      .enum([
+        "approval",
+        "purchase-order",
+        "logo",
+        "booth-location",
+        "booth-design",
+      ])
       .parse(req.body.kind);
     if (!req.files?.length)
       return res.status(400).json({ error: "Select at least one file." });
@@ -722,13 +732,13 @@ app.get("/api/export/excel", async (req, res, next) => {
     const sheet = book.addWorksheet("Sponsors", {
       views: [{ state: "frozen", ySplit: 4 }],
     });
-    sheet.mergeCells("A1:O1");
+    sheet.mergeCells("A1:Q1");
     sheet.getCell("A1").value = "MAESTRO | Digital Government Forum";
     sheet.getCell("A1").font = { size: 20, bold: true };
     sheet.getRow(1).height = 36;
-    sheet.mergeCells("A2:O2");
+    sheet.mergeCells("A2:Q2");
     sheet.getCell("A2").value = "Sponsor Management Dashboard — Currency: SAR";
-    sheet.mergeCells("A3:O3");
+    sheet.mergeCells("A3:Q3");
     sheet.getCell("A3").value = "Exported: " + new Date().toISOString();
     sheet.addRow([
       "Sponsor Name",
@@ -746,6 +756,8 @@ app.get("/api/export/excel", async (req, res, next) => {
       "Outstanding Balance",
       "Last Updated",
       "Consideration",
+      "Booth Size",
+      "Booth Location",
     ]);
     sheet.getRow(4).font = { bold: true, color: { argb: "FFFFFFFF" } };
     sheet.getRow(4).fill = {
@@ -770,10 +782,12 @@ app.get("/api/export/excel", async (req, res, next) => {
         s.outstanding === null ? "Not determined" : s.outstanding,
         s.updatedAt,
         s.consideration || "",
+        s.boothSize || "",
+        s.boothLocation || "",
       ]);
-    for (let i = 1; i <= 15; i++) sheet.getColumn(i).width = i === 1 ? 32 : 24;
+    for (let i = 1; i <= 17; i++) sheet.getColumn(i).width = i === 1 ? 32 : 24;
     for (const col of [11, 12, 13]) sheet.getColumn(col).numFmt = "#,##0.00";
-    sheet.autoFilter = "A4:O" + Math.max(4, sponsors.length + 4);
+    sheet.autoFilter = "A4:Q" + Math.max(4, sponsors.length + 4);
     const payments = book.addWorksheet("Payments");
     payments.addRow([
       "Sponsor Name",
@@ -812,7 +826,11 @@ app.get("/api/export/excel", async (req, res, next) => {
             ? "Purchase Order Attachments"
             : a.kind === "approval"
               ? "Approval Attachments"
-              : "Sponsor Logo",
+              : a.kind === "booth-location"
+                ? "Booth Location Attachments"
+                : a.kind === "booth-design"
+                  ? "Booth Design Attachments"
+                  : "Sponsor Logo",
           a.name,
           a.createdAt,
         ]);
@@ -865,7 +883,7 @@ app.get("/api/export/excel", async (req, res, next) => {
       extension: logo.mime === "image/png" ? "png" : "jpeg",
     });
     sheet.addImage(image, {
-      tl: { col: 12, row: 0.16 },
+      tl: { col: 14, row: 0.16 },
       ext: fitLogo(logo.bytes, logo.mime, 145, 32),
     });
     res

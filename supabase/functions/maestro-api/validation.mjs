@@ -47,6 +47,8 @@ export const sponsorSchema = z.object({
   poDate: date,
   value: money.nullable(),
   consideration: z.string().trim().max(1000).optional(),
+  boothSize: z.string().trim().max(200).optional(),
+  boothLocation: z.string().trim().max(500).optional(),
   payments: z
     .array(
       z.object({

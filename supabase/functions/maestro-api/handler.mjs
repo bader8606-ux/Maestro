@@ -118,6 +118,8 @@ export function createHandler(db, { origins = [] } = {}) {
         s.payments.reduce((n, p) => n + Math.round(p.amount * 100), 0) / 100;
       return {
         ...s,
+        boothSize: s.boothSize || "",
+        boothLocation: s.boothLocation || "",
         id: r.id,
         revision: r.revision,
         updatedAt: r.updated_at,
@@ -305,7 +307,13 @@ export function createHandler(db, { origins = [] } = {}) {
           await one(id);
           const form = await req.formData(),
             kind = z
-              .enum(["approval", "purchase-order", "logo"])
+              .enum([
+                "approval",
+                "purchase-order",
+                "logo",
+                "booth-location",
+                "booth-design",
+              ])
               .parse(form.get("kind"));
           const files = form.getAll("files");
           if (
