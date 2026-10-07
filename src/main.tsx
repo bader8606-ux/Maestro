@@ -294,11 +294,13 @@ function Modal({
   children,
   onClose,
   wide = false,
+  className = "",
 }: {
   title: string;
   children: React.ReactNode;
   onClose: () => void;
   wide?: boolean;
+  className?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
@@ -306,6 +308,10 @@ function Modal({
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
     const key = (e: KeyboardEvent) => {
+      const dialogs = document.querySelectorAll(
+        '[role="dialog"][aria-modal="true"]',
+      );
+      if (ref.current !== dialogs[dialogs.length - 1]) return;
       if (e.key === "Escape") closeRef.current();
       if (e.key === "Tab") {
         const els = Array.from(
@@ -342,7 +348,7 @@ function Modal({
       }}
     >
       <div
-        className={"modal " + (wide ? "wide" : "")}
+        className={"modal " + (wide ? "wide " : "") + className}
         role="dialog"
         aria-modal="true"
         aria-label={title}
@@ -557,6 +563,7 @@ function App() {
       {page !== "dashboard" && (
         <Modal
           wide
+          className={page === "packages" ? "packages-modal" : ""}
           title={
             page === "packages"
               ? "Sponsorship Packages"
@@ -3039,27 +3046,47 @@ function Packages({
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   const [benefitAr, setBenefitAr] = useState("");
+  const [search, setSearch] = useState(""),
+    [sort, setSort] = useState("name"),
+    [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const query = search.trim().normalize("NFKC").toLocaleLowerCase();
+  const byName = (a: Package, b: Package) =>
+    a.name.localeCompare(b.name, "en", { sensitivity: "base", numeric: true });
+  const visiblePackages = packages
+    .filter((p) =>
+      [p.name, ...p.benefits, ...(p.benefitsAr || [])].some((text) =>
+        text.normalize("NFKC").toLocaleLowerCase().includes(query),
+      ),
+    )
+    .sort((a, b) => {
+      if (sort === "name") return byName(a, b);
+      if (a.referenceValue === undefined)
+        return b.referenceValue === undefined ? byName(a, b) : 1;
+      if (b.referenceValue === undefined) return -1;
+      const difference = a.referenceValue - b.referenceValue;
+      return (sort === "value-desc" ? -difference : difference) || byName(a, b);
+    });
+  const addPackage = () => {
+    setActive({ id: "", name: "", benefits: [] });
+    setBenefit("");
+    setBenefitAr("");
+    setError("");
+  };
   return (
-    <>
+    <div className="packages-workspace">
       <div className="heading-row">
         <div>
           <div className="eyebrow">
             <span className="tiny-line" />
             PARTNERSHIP STRUCTURE
           </div>
-          <h1>Sponsorship Packages</h1>
-          <p>Create your packages and define what each partnership includes.</p>
+          <h1>Package Catalogue</h1>
+          <p>
+            Compare reference values and explore each partnership's benefits.
+          </p>
         </div>
         {editable && (
-          <button
-            className="primary"
-            onClick={() => {
-              setActive({ id: "", name: "", benefits: [] });
-              setBenefit("");
-              setBenefitAr("");
-              setError("");
-            }}
-          >
+          <button className="primary" onClick={addPackage}>
             <Plus size={17} />
             Add Package
           </button>
@@ -3072,88 +3099,232 @@ function Packages({
           sponsor benefits remain independent.
         </span>
       </div>
+      {packages.length > 0 && (
+        <>
+          <div className="packages-toolbar">
+            <div className="search-field">
+              <Search size={18} aria-hidden="true" />
+              <input
+                type="search"
+                aria-label="Search packages"
+                placeholder="Search package names or benefits"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+              {search && visiblePackages.length > 0 && (
+                <IconButton
+                  icon={X}
+                  label="Clear search"
+                  onClick={() => setSearch("")}
+                />
+              )}
+            </div>
+            <label className="package-sort">
+              <span>Sort packages</span>
+              <select
+                aria-label="Sort packages"
+                value={sort}
+                onChange={(e) => setSort(e.target.value)}
+              >
+                <option value="name">Package name (A–Z)</option>
+                <option value="value-asc">Reference value (low to high)</option>
+                <option value="value-desc">
+                  Reference value (high to low)
+                </option>
+              </select>
+            </label>
+          </div>
+          <p className="package-results" role="status">
+            {visiblePackages.length} of {packages.length} packages
+          </p>
+        </>
+      )}
       {packages.length ? (
-        <div className="package-grid">
-          {packages.map((p) => (
-            <article className="package-card" key={p.id}>
-              <div className="package-card-top">
-                <div className="empty-icon">
-                  <Layers3 size={25} />
-                </div>
-                {editable && (
-                  <div>
-                    <button
-                      className="text-button"
-                      onClick={() => {
-                        setActive(structuredClone(p));
-                        setBenefit("");
-                        setBenefitAr("");
-                        setError("");
-                      }}
-                    >
-                      Edit
-                    </button>
-                    <IconButton
-                      icon={Trash2}
-                      label={"Delete " + p.name}
-                      onClick={async () => {
-                        if (
-                          !window.confirm("Delete the " + p.name + " package?")
-                        )
-                          return;
-                        try {
-                          await api("/packages/" + p.id, "DELETE");
-                          await refresh();
-                          notify("Package deleted.");
-                        } catch (e) {
-                          notify((e as Error).message, true);
-                        }
-                      }}
-                    />
+        visiblePackages.length ? (
+          <div className="package-grid">
+            {visiblePackages.map((p) => {
+              const open = Boolean(expanded[p.id]);
+              const shownBenefits = p.benefits.slice(0, open ? undefined : 3);
+              return (
+                <article className="package-card" key={p.id}>
+                  <div className="package-card-top">
+                    <div className="empty-icon">
+                      <Layers3 size={25} />
+                    </div>
+                    {editable && (
+                      <div className="package-card-actions">
+                        <button
+                          className="text-button"
+                          onClick={() => {
+                            setActive(structuredClone(p));
+                            setBenefit("");
+                            setBenefitAr("");
+                            setError("");
+                          }}
+                        >
+                          <Pencil size={14} />
+                          Edit Package
+                        </button>
+                        <IconButton
+                          icon={Trash2}
+                          label={"Delete " + p.name}
+                          onClick={async () => {
+                            if (
+                              !window.confirm(
+                                "Delete the " + p.name + " package?",
+                              )
+                            )
+                              return;
+                            try {
+                              await api("/packages/" + p.id, "DELETE");
+                              await refresh();
+                              notify("Package deleted.");
+                            } catch (e) {
+                              notify((e as Error).message, true);
+                            }
+                          }}
+                        />
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-              <h2>{p.name}</h2>
-              {p.referenceValue !== undefined && (
-                <div className="package-price">
-                  <span>Reference Value · SAR</span>
-                  <strong>{money(p.referenceValue)}</strong>
-                </div>
-              )}
-              <span className="muted">
-                {p.benefits.length} package benefits
-              </span>
-              <h3>Arabic Benefits</h3>
-              {p.benefitsAr?.some((b) => b.trim()) ? (
-                <ul>
-                  {p.benefits.map((_, i) => (
-                    <li key={i}>
-                      <Check size={16} />
-                      <span lang="ar" dir="rtl">
-                        {p.benefitsAr?.[i] ||
-                          "Arabic translation not provided."}
+                  <h2>{p.name}</h2>
+                  <div className="package-value-row">
+                    <div className="package-price">
+                      <span>Reference Value · SAR</span>
+                      <strong
+                        className={
+                          p.referenceValue === undefined
+                            ? "package-value-missing"
+                            : ""
+                        }
+                      >
+                        {p.referenceValue === undefined
+                          ? "Not provided"
+                          : money(p.referenceValue)}
+                      </strong>
+                    </div>
+                    <span className="package-benefit-count">
+                      <Layers3 size={14} aria-hidden="true" />
+                      {p.benefits.length}{" "}
+                      {p.benefits.length === 1 ? "benefit" : "benefits"}
+                    </span>
+                  </div>
+                  <div
+                    className="package-benefit-columns"
+                    id={"package-benefits-" + p.id}
+                  >
+                    <section className="package-benefit-language">
+                      <h3>Arabic Benefits</h3>
+                      <ul>
+                        {shownBenefits.map((b, i) => {
+                          const translated = p.benefitsAr?.[i];
+                          const hasTranslation = Boolean(translated?.trim());
+                          return (
+                            <li
+                              className="package-benefit-row"
+                              style={{ gridRow: i + 2 }}
+                              key={i}
+                            >
+                              <span
+                                className="package-benefit-number"
+                                aria-hidden="true"
+                              >
+                                {i + 1}
+                              </span>
+                              <span
+                                className="package-benefit-copy"
+                                lang={hasTranslation ? "ar" : "en"}
+                                dir={hasTranslation ? "rtl" : "ltr"}
+                              >
+                                <span
+                                  className="package-benefit-text"
+                                  lang={hasTranslation ? "ar" : "en"}
+                                  dir={hasTranslation ? "rtl" : "ltr"}
+                                >
+                                  {hasTranslation ? translated : b}
+                                </span>
+                                {!hasTranslation && (
+                                  <small>
+                                    Arabic translation not provided.
+                                  </small>
+                                )}
+                              </span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </section>
+                    <section className="package-benefit-language">
+                      <h3>English Benefits</h3>
+                      <ul>
+                        {shownBenefits.map((b, i) => (
+                          <li
+                            className="package-benefit-row"
+                            style={{ gridRow: i + 2 }}
+                            key={i}
+                          >
+                            <span
+                              className="package-benefit-number"
+                              aria-hidden="true"
+                            >
+                              {i + 1}
+                            </span>
+                            <span className="package-benefit-copy">
+                              <span
+                                className="package-benefit-text"
+                                lang="en"
+                                dir="ltr"
+                              >
+                                {b}
+                              </span>
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </section>
+                  </div>
+                  {!p.benefits.length && (
+                    <p className="muted">No default benefits defined.</p>
+                  )}
+                  {p.benefits.length > 3 && (
+                    <div className="package-expand-row">
+                      <span>
+                        {open
+                          ? `All ${p.benefits.length} benefits`
+                          : `Showing 3 of ${p.benefits.length} benefits`}
                       </span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="muted">Arabic translations not provided.</p>
-              )}
-              <h3>English Benefits</h3>
-              <ul>
-                {p.benefits.map((b, i) => (
-                  <li key={i}>
-                    <Check size={16} />
-                    {b}
-                  </li>
-                ))}
-              </ul>
-              {!p.benefits.length && (
-                <p className="muted">No default benefits defined.</p>
-              )}
-            </article>
-          ))}
-        </div>
+                      <button
+                        type="button"
+                        className="text-button package-expand"
+                        aria-expanded={open}
+                        aria-controls={"package-benefits-" + p.id}
+                        onClick={() =>
+                          setExpanded({ ...expanded, [p.id]: !open })
+                        }
+                      >
+                        {open ? "Show fewer benefits" : "Show all benefits"}
+                        <ChevronDown size={16} aria-hidden="true" />
+                      </button>
+                    </div>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+        ) : (
+          <section className="table-section package-search-empty">
+            <Empty
+              icon={Search}
+              title="No matching packages"
+              text="Try another package name or benefit."
+              action={
+                <button className="secondary" onClick={() => setSearch("")}>
+                  Clear search
+                </button>
+              }
+            />
+          </section>
+        )
       ) : (
         <section className="table-section">
           <Empty
@@ -3162,15 +3333,7 @@ function Packages({
             text="Add the packages offered by the forum and define their benefits."
             action={
               editable ? (
-                <button
-                  className="primary"
-                  onClick={() => {
-                    setActive({ id: "", name: "", benefits: [] });
-                    setBenefit("");
-                    setBenefitAr("");
-                    setError("");
-                  }}
-                >
+                <button className="primary" onClick={addPackage}>
                   <Plus size={17} />
                   Add Package
                 </button>
@@ -3182,12 +3345,13 @@ function Packages({
       {active && (
         <Modal
           title={active.id ? "Edit Package" : "Add Package"}
+          className="package-editor-modal"
           onClose={() => {
             if (!busy) setActive(null);
           }}
         >
           <form
-            className="settings-form"
+            className="settings-form package-editor-form"
             onSubmit={async (e) => {
               e.preventDefault();
               setBusy(true);
@@ -3199,6 +3363,7 @@ function Packages({
                   active,
                 );
                 await refresh();
+                setSearch("");
                 setActive(null);
                 notify("Package saved successfully.");
               } catch (e) {
@@ -3243,72 +3408,104 @@ function Packages({
             </Field>
             <div className="section-title">
               <h3>Default Benefits</h3>
-              <p>Editable commitments for sponsors on this package.</p>
+              <p>Keep each English benefit with its Arabic translation.</p>
             </div>
             {active.benefits.map((b, i) => (
-              <div className="inline-add" key={i}>
-                <input
-                  aria-label={"Default benefit " + (i + 1)}
-                  required
-                  maxLength={300}
-                  value={b}
-                  onChange={(e) =>
-                    setActive({
-                      ...active,
-                      benefits: active.benefits.map((v, j) =>
-                        i === j ? e.target.value : v,
-                      ),
-                    })
-                  }
-                />
-                <input
-                  aria-label={"Arabic default benefit " + (i + 1)}
-                  lang="ar"
-                  dir="rtl"
-                  maxLength={300}
-                  placeholder="Arabic translation"
-                  value={active.benefitsAr?.[i] || ""}
-                  onChange={(e) =>
-                    setActive({
-                      ...active,
-                      benefitsAr: active.benefits.map((_, j) =>
-                        i === j ? e.target.value : active.benefitsAr?.[j] || "",
-                      ),
-                    })
-                  }
-                />
-                <IconButton
-                  icon={Trash2}
-                  label="Remove default benefit"
-                  onClick={() =>
-                    setActive({
-                      ...active,
-                      benefits: active.benefits.filter((_, j) => j !== i),
-                      benefitsAr: active.benefits
-                        .map((_, j) => active.benefitsAr?.[j] || "")
-                        .filter((_, j) => j !== i),
-                    })
-                  }
-                />
+              <div className="package-editor-benefit" key={i}>
+                <div className="package-editor-benefit-heading">
+                  <span>Benefit {i + 1}</span>
+                  <IconButton
+                    icon={Trash2}
+                    label="Remove default benefit"
+                    onClick={() =>
+                      setActive({
+                        ...active,
+                        benefits: active.benefits.filter((_, j) => j !== i),
+                        benefitsAr: active.benefits
+                          .map((_, j) => active.benefitsAr?.[j] || "")
+                          .filter((_, j) => j !== i),
+                      })
+                    }
+                  />
+                </div>
+                <div className="package-editor-languages">
+                  <label>
+                    <span>English Benefit</span>
+                    <textarea
+                      aria-label={"Default benefit " + (i + 1)}
+                      lang="en"
+                      dir="ltr"
+                      rows={3}
+                      required
+                      maxLength={300}
+                      value={b}
+                      onChange={(e) =>
+                        setActive({
+                          ...active,
+                          benefits: active.benefits.map((v, j) =>
+                            i === j ? e.target.value : v,
+                          ),
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    <span>Arabic Benefit</span>
+                    <textarea
+                      aria-label={"Arabic default benefit " + (i + 1)}
+                      lang="ar"
+                      dir="rtl"
+                      rows={3}
+                      maxLength={300}
+                      placeholder="Arabic translation"
+                      value={active.benefitsAr?.[i] || ""}
+                      onChange={(e) =>
+                        setActive({
+                          ...active,
+                          benefitsAr: active.benefits.map((_, j) =>
+                            i === j
+                              ? e.target.value
+                              : active.benefitsAr?.[j] || "",
+                          ),
+                        })
+                      }
+                    />
+                  </label>
+                </div>
               </div>
             ))}
-            <div className="inline-add">
-              <input
-                aria-label="New default benefit"
-                value={benefit}
-                maxLength={300}
-                onChange={(e) => setBenefit(e.target.value)}
-                placeholder="Describe a default benefit"
-              />
-              <input
-                aria-label="New Arabic default benefit"
-                lang="ar"
-                dir="rtl"
-                value={benefitAr}
-                maxLength={300}
-                onChange={(e) => setBenefitAr(e.target.value)}
-                placeholder="Arabic translation"
-              />
+            <div className="package-editor-benefit package-editor-new">
+              <div className="package-editor-benefit-heading">
+                <span>New Benefit</span>
+              </div>
+              <div className="package-editor-languages">
+                <label>
+                  <span>English Benefit</span>
+                  <textarea
+                    aria-label="New default benefit"
+                    lang="en"
+                    dir="ltr"
+                    rows={3}
+                    value={benefit}
+                    maxLength={300}
+                    onChange={(e) => setBenefit(e.target.value)}
+                    placeholder="Describe a default benefit"
+                  />
+                </label>
+                <label>
+                  <span>Arabic Benefit</span>
+                  <textarea
+                    aria-label="New Arabic default benefit"
+                    lang="ar"
+                    dir="rtl"
+                    rows={3}
+                    value={benefitAr}
+                    maxLength={300}
+                    onChange={(e) => setBenefitAr(e.target.value)}
+                    placeholder="Arabic translation"
+                  />
+                </label>
+              </div>
               <button
                 type="button"
                 className="secondary"
@@ -3358,7 +3555,7 @@ function Packages({
           </form>
         </Modal>
       )}
-    </>
+    </div>
   );
 }
 function Team({

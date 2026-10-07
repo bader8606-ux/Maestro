@@ -173,7 +173,9 @@ await test("English workspace persists paired Arabic benefits and undetermined s
           "Arabic Benefits",
           "English Benefits",
         ]);
-        await card.getByRole("button", { name: "Edit", exact: true }).click();
+        await card
+          .getByRole("button", { name: "Edit Package", exact: true })
+          .click();
         dialog = page.getByRole("dialog").last();
         await dialog
           .getByRole("button", { name: "Remove default benefit", exact: true })

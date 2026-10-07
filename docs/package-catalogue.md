@@ -21,3 +21,11 @@ The source states three VVIP seats for the four thematic packages, two for Gold 
 English benefit translations preserve these conditions and quantities. The deployment migration inserts missing package definitions only, using stable internal IDs and a case-insensitive name check; existing records are not overwritten. The migration runs once, so user edits or deletions persist across deployments. Editors can amend names, optional reference values and benefits in the page.
 
 Reference prices do not establish agreed sponsor values, receipts, approvals or purchase orders. No sponsor accounts, contact details, payment entries or attachments are imported. The general enquiry contact on page 18 is not a sponsor contact.
+
+## Browse the packages
+
+Open **Sponsorship Packages** from the shared page. Cards show each package's name, reference value in SAR and benefit count. Search matches names and benefit text in either language. Sorting by name or reference value changes the display only; packages without a reference value appear last when sorting by price, and an explicit zero remains SAR 0.00.
+
+Each card previews the first three benefits in separate Arabic and English sections. **Show all benefits** reveals the complete lists in their original order. **Show fewer benefits** restores the preview. Missing Arabic translations are labeled in English. On smaller screens the language sections stack to keep the descriptions readable.
+
+Editors and administrators can use **Add Package** and **Edit Package**. The editor presents each paired English/Arabic benefit together, preserving its position when added or removed. Viewers can search, sort and expand cards. These display controls do not save changes to package definitions or to sponsors' copied benefits, agreed values, approvals, purchase orders or payments.
