@@ -40,6 +40,8 @@ The first run creates `/workspace/maestro-data/setup-token` with owner-only perm
 
 Administrators create team accounts under **Team & Access**, choose Viewer, Editor or Administrator access, deactivate accounts, and reset passwords. Share initial team passwords securely. Sessions expire after 12 hours and are revoked on deactivation or password reset. This is password authentication; external SSO and self-service email password resets are not included.
 
+The **Team & Access** dialog scrolls vertically through the complete member list, including inactive accounts. Search by name or email, clear the search to show every member, and use **Refresh Members** to reload changes made in another session. The member count reflects all loaded accounts. Loading and retrieval errors are shown explicitly; a failed refresh keeps the existing list. A successfully saved account appears immediately even if the subsequent refresh fails, so retry the refresh rather than creating the same account again.
+
 ## Data and files
 
 SQLite stores users, password hashes, sessions, sponsor records, package definitions, brand settings and attachment metadata. Files are stored alongside the database in the protected uploads directory, not browser storage. Restarting the server retains data and sessions. All file reads and exports require authentication; edits are authorized by role on the server.

@@ -3570,12 +3570,38 @@ function Team({
     [edit, setEdit] = useState<User | null>(null),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
-  const load = async () => setUsers(await api<User[]>("/users"));
+  const [search, setSearch] = useState(""),
+    [listLoading, setListLoading] = useState(true),
+    [listError, setListError] = useState("");
+  const loadVersion = useRef(0);
+  const load = async () => {
+    const version = ++loadVersion.current;
+    setListLoading(true);
+    setListError("");
+    try {
+      const members = await api<User[]>("/users");
+      if (version === loadVersion.current) setUsers(members);
+    } catch (e) {
+      if (version === loadVersion.current) setListError((e as Error).message);
+      throw e;
+    } finally {
+      if (version === loadVersion.current) setListLoading(false);
+    }
+  };
   useEffect(() => {
-    load().catch((e) => notify(e.message, true));
+    void load().catch(() => {});
+    return () => {
+      loadVersion.current++;
+    };
   }, []);
+  const query = search.trim().normalize("NFKC").toLocaleLowerCase();
+  const visibleUsers = users.filter((u) =>
+    [u.name, u.email].some((text) =>
+      text.normalize("NFKC").toLocaleLowerCase().includes(query),
+    ),
+  );
   return (
-    <>
+    <div className="team-workspace">
       <div className="heading-row">
         <div>
           <div className="eyebrow">
@@ -3585,16 +3611,26 @@ function Team({
           <h1>Team & Access</h1>
           <p>Give each member the right level of access.</p>
         </div>
-        <button
-          className="primary"
-          onClick={() => {
-            setAdd(true);
-            setError("");
-          }}
-        >
-          <Plus size={17} />
-          Add Team Member
-        </button>
+        <div className="team-heading-actions">
+          <button
+            className="secondary"
+            disabled={listLoading || busy}
+            onClick={() => void load().catch(() => {})}
+          >
+            <RefreshCw size={16} className={listLoading ? "spin" : ""} />
+            Refresh Members
+          </button>
+          <button
+            className="primary"
+            onClick={() => {
+              setAdd(true);
+              setError("");
+            }}
+          >
+            <Plus size={17} />
+            Add Team Member
+          </button>
+        </div>
       </div>
       <div className="roles-grid">
         {[
@@ -3624,9 +3660,42 @@ function Team({
       <section className="table-section">
         <div className="section-heading">
           <h2>
-            Workspace Members <span className="count-pill">{users.length}</span>
+            Workspace Members{" "}
+            <span className="count-pill">
+              {listLoading && !users.length ? "…" : users.length}
+            </span>
           </h2>
         </div>
+        <div className="team-member-toolbar">
+          <div className="search-field team-member-search">
+            <Search size={17} aria-hidden="true" />
+            <input
+              type="search"
+              aria-label="Search team members"
+              placeholder="Search by name or email"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            {search && (
+              <IconButton
+                icon={X}
+                label="Clear member search"
+                onClick={() => setSearch("")}
+              />
+            )}
+          </div>
+          <p className="team-member-results" role="status">
+            {listLoading
+              ? "Loading team members…"
+              : `${visibleUsers.length} of ${users.length} members`}
+          </p>
+        </div>
+        {listError && (
+          <div className="inline-alert team-load-error" role="alert">
+            <AlertCircle size={17} />
+            <span>{listError} Use Refresh Members to try again.</span>
+          </div>
+        )}
         <div className="table-scroll">
           <table>
             <thead>
@@ -3639,7 +3708,7 @@ function Team({
               </tr>
             </thead>
             <tbody>
-              {users.map((u) => (
+              {visibleUsers.map((u) => (
                 <tr key={u.id}>
                   <td>
                     <strong>{u.name}</strong>
@@ -3674,6 +3743,11 @@ function Team({
             </tbody>
           </table>
         </div>
+        {!listLoading && !listError && !visibleUsers.length && (
+          <p className="team-members-empty" role="status">
+            {query ? "No matching team members." : "No team members found."}
+          </p>
+        )}
       </section>
       {(add || edit) && (
         <Modal
@@ -3700,11 +3774,33 @@ function Team({
                     ...(input.password ? { password: input.password } : {}),
                   };
                   await api("/users/" + edit.id, "PATCH", body);
-                } else await api("/users", "POST", input);
-                await load();
+                  setUsers((members) =>
+                    members.map((member) =>
+                      member.id === edit.id
+                        ? {
+                            ...member,
+                            role: input.role as User["role"],
+                            active: body.active,
+                          }
+                        : member,
+                    ),
+                  );
+                } else {
+                  const member = await api<User>("/users", "POST", input);
+                  setUsers((members) => [...members, member]);
+                }
                 setAdd(false);
                 setEdit(null);
+                setSearch("");
                 notify("Team access saved.");
+                try {
+                  await load();
+                } catch {
+                  notify(
+                    "Team access was saved, but the list could not be refreshed. Use Refresh Members to retry.",
+                    true,
+                  );
+                }
               } catch (e) {
                 setError((e as Error).message);
               } finally {
@@ -3780,7 +3876,7 @@ function Team({
           </form>
         </Modal>
       )}
-    </>
+    </div>
   );
 }
 function BrandSettings({
