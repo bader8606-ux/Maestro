@@ -548,3 +548,71 @@ test("Explicit benefit exclusions remove only those entries and empty financial 
     /also excludes/,
   );
 });
+
+test("Existing sponsor amendments preserve other fields and package definitions while replacing terms", () => {
+  const seed = planImport(fixture(), emptyState());
+  const previous = structuredClone(seed.sponsors[0]);
+  previous.revision = 3;
+  previous.data.notes = "Existing private note.";
+  previous.data.contact = "Fixture contact";
+  previous.data.benefits[0].completed = true;
+  const state = {
+    packages: seed.packages,
+    sponsors: [previous],
+    attachments: [],
+  };
+  const payload = validatePayload(
+    {
+      version: 1,
+      projectRef,
+      operationId: randomUUID(),
+      sponsors: [
+        {
+          name: previous.data.name,
+          update: {
+            value: 2000,
+            benefits: [
+              { title: previous.data.benefits[0].title, titleAr: "ميزة محدثة" },
+              { title: "Updated fixture commitment", titleAr: "التزام جديد" },
+            ],
+            notesAppend: "Additional service is separate from sponsorship.",
+          },
+        },
+      ],
+    },
+    projectRef,
+  );
+  const plan = planImport(payload, state);
+  assert.equal(plan.packages.length, 0);
+  assert.equal(plan.sponsors.length, 1);
+  const result = plan.sponsors[0];
+  assert.equal(result.id, previous.id);
+  assert.equal(result.package_id, previous.package_id);
+  assert.equal(result.data.value, 2000);
+  assert.equal(result.data.benefits.length, 2);
+  assert.equal(result.data.benefits[0].id, previous.data.benefits[0].id);
+  assert.equal(result.data.benefits[0].completed, true);
+  assert.equal(result.data.benefits[1].completed, false);
+  assert.equal(
+    result.data.notes,
+    previous.data.notes + "\n\n" + payload.sponsors[0].update.notesAppend,
+  );
+  for (const field of Object.keys(previous.data).filter(
+    (f) => !["value", "benefits", "notes"].includes(f),
+  ))
+    assert.deepEqual(result.data[field], previous.data[field]);
+  const repeat = planImport(payload, {
+    ...state,
+    sponsors: [{ ...result, revision: 4 }],
+  });
+  assert.equal(repeat.summary.updated, 0);
+  assert.deepEqual(repeat.sponsors[0].data, result.data);
+  assert.deepEqual(
+    decryptEnvelope(encryptEnvelope(payload, key), key, projectRef),
+    payload,
+  );
+  assert.throws(() => planImport(payload, emptyState()), /existing sponsor/);
+  const oversized = structuredClone(state);
+  oversized.sponsors[0].data.notes = "x".repeat(3000);
+  assert.throws(() => planImport(payload, oversized));
+});

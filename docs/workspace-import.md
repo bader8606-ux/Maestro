@@ -36,6 +36,14 @@ provider errors, SQL and private keys are not printed. A lost database response
 checks the marker before cleaning staged files. Temporary plaintext/envelope
 files should be removed after the authorized import is verified.
 
+For an explicitly authorized replacement of an existing sponsor's terms, a
+payload entry may use `name` and `update` with `value`, the complete bilingual
+`benefits` list, and `notesAppend`. It requires an existing, unambiguous sponsor;
+it never creates or changes package definitions. Exact matching benefits retain
+their IDs and completion flags. Other sponsor fields and attachments remain
+unchanged. Notes are appended without duplicating the same text; a result beyond
+the notes length limit fails rather than truncating existing information.
+
 The normal test suite exercises encryption, payload validation, public-key
 projection and import planning with disposable fixtures. The optional
 `tests/workspace-import-postgres.mjs` checks the actual application schema and

@@ -61,13 +61,25 @@ const company = z
   .strict()
   .refine((s) => s.packageBenefits.length === s.packageBenefitsAr.length);
 const logoOnly = z.object({ name: text(200), logo: image }).strict();
+const amendment = z
+  .object({
+    name: text(200),
+    update: z
+      .object({
+        value: money,
+        benefits: z.array(benefit).max(300),
+        notesAppend: text(3000),
+      })
+      .strict(),
+  })
+  .strict();
 const payloadSchema = z
   .object({
     version: z.literal(1),
     projectRef: z.string().regex(/^[a-z]{20}$/),
     operationId: z.string().uuid(),
     sponsors: z
-      .array(z.union([company, logoOnly]))
+      .array(z.union([company, logoOnly, amendment]))
       .min(1)
       .max(20),
   })
@@ -144,10 +156,10 @@ export function validatePayload(input, projectRef) {
     );
   for (const s of data.sponsors) {
     if (s.logo) imageBytes(s.logo);
+    const benefits = s.benefits || s.update?.benefits;
     if (
-      s.benefits &&
-      new Set(s.benefits.map((b) => normalized(b.title))).size !==
-        s.benefits.length
+      benefits &&
+      new Set(benefits.map((b) => normalized(b.title))).size !== benefits.length
     )
       throw new Error("The encrypted import contains duplicate benefits.");
     if (
@@ -342,7 +354,43 @@ export function planImport(payload, state) {
   for (const s of payload.sponsors) {
     const previous = matchOne(state.sponsors, s.name);
     let row;
-    if (!s.packageName) {
+    if (s.update) {
+      if (!previous)
+        throw new Error("An amendment requires an existing sponsor.");
+      const data = structuredClone(previous.data);
+      const used = new Set();
+      data.benefits = s.update.benefits.map((incoming) => {
+        const matches = data.benefits.filter(
+          (old) =>
+            normalized(old.title) === normalized(incoming.title) ||
+            (incoming.titleAr &&
+              old.titleAr &&
+              normalized(old.titleAr) === normalized(incoming.titleAr)),
+        );
+        if (matches.length > 1 || (matches[0] && used.has(matches[0].id)))
+          throw new Error(
+            "Existing benefit identities are ambiguous; amendment stopped.",
+          );
+        if (matches[0]) used.add(matches[0].id);
+        return {
+          id: matches[0]?.id || randomUUID(),
+          ...incoming,
+          completed: matches[0]?.completed || false,
+        };
+      });
+      data.value = s.update.value;
+      if (!data.notes.includes(s.update.notesAppend))
+        data.notes = [data.notes, s.update.notesAppend]
+          .filter(Boolean)
+          .join("\n\n");
+      sponsorSchema.parse(data);
+      row = {
+        id: previous.id,
+        previous,
+        data,
+        package_id: previous.package_id,
+      };
+    } else if (!s.packageName) {
       if (!previous)
         throw new Error("A logo-only import requires an existing sponsor.");
       row = {
