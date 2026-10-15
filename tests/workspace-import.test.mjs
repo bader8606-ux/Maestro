@@ -616,3 +616,87 @@ test("Existing sponsor amendments preserve other fields and package definitions 
   oversized.sponsors[0].data.notes = "x".repeat(3000);
   assert.throws(() => planImport(payload, oversized));
 });
+
+test("Name-only sponsor creation uses empty independent defaults and preserves existing matches", () => {
+  const payload = validatePayload(
+    {
+      version: 1,
+      projectRef,
+      operationId: randomUUID(),
+      sponsors: [{ name: "Name-only fixture", create: true }],
+    },
+    projectRef,
+  );
+  assert.deepEqual(
+    decryptEnvelope(encryptEnvelope(payload, key), key, projectRef),
+    payload,
+  );
+  const plan = planImport(payload, emptyState());
+  assert.equal(plan.summary.created, 1);
+  assert.equal(plan.packages.length, 0);
+  assert.equal(plan.logos.length, 0);
+  const row = plan.sponsors[0];
+  assert.equal(row.package_id, null);
+  assert.equal(row.data.packageId, "");
+  assert.equal(row.data.value, null);
+  assert.equal(row.data.approval, "Not Approved");
+  assert.equal(row.data.poIssued, false);
+  for (const field of [
+    "contact",
+    "mobile",
+    "email",
+    "notes",
+    "boothSize",
+    "boothLocation",
+    "poNumber",
+    "poDate",
+    "approvalDate",
+    "consideration",
+  ])
+    assert.equal(row.data[field], "");
+  assert.deepEqual(row.data.payments, []);
+  assert.deepEqual(row.data.benefits, []);
+  const sql = transactionSql(plan, payload, "fixture-hash");
+  assert.match(sql, /insert into public.maestro_sponsors/);
+  assert.doesNotMatch(sql, /insert into public.maestro_packages/);
+  assert.match(sql, /Import verification failed/);
+  const existing = {
+    ...row,
+    revision: 4,
+    data: {
+      ...row.data,
+      value: 123.45,
+      contact: "Existing contact",
+      approval: "Approved",
+      poIssued: true,
+      notes: "Preserve existing record.",
+    },
+  };
+  const repeatPayload = structuredClone(payload);
+  repeatPayload.sponsors[0].name = "NAME-ONLY FIXTURE";
+  const state = { packages: [], sponsors: [existing], attachments: [] };
+  const repeat = planImport(repeatPayload, state);
+  assert.equal(repeat.summary.created, 0);
+  assert.equal(repeat.summary.updated, 0);
+  assert.equal(repeat.sponsors[0].id, existing.id);
+  assert.deepEqual(repeat.sponsors[0].data, existing.data);
+  assert.throws(
+    () =>
+      planImport(payload, {
+        ...state,
+        sponsors: [existing, { ...existing, id: randomUUID() }],
+      }),
+    /ambiguous/,
+  );
+  assert.throws(
+    () =>
+      validatePayload(
+        {
+          ...payload,
+          sponsors: [{ ...payload.sponsors[0], approval: "Approved" }],
+        },
+        projectRef,
+      ),
+    /schema/,
+  );
+});

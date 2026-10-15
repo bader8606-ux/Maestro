@@ -44,6 +44,13 @@ their IDs and completion flags. Other sponsor fields and attachments remain
 unchanged. Notes are appended without duplicating the same text; a result beyond
 the notes length limit fails rather than truncating existing information.
 
+To add a sponsor when only its name has been supplied, an entry may contain
+`name` and `create: true`. It creates an unassigned record with an undetermined
+value, empty contact/benefit/payment fields and the normal initial approval/PO
+defaults. An existing case-insensitive name match is preserved unchanged rather
+than duplicated or reset; ambiguous matches stop the operation. No package is
+created by this mode.
+
 The normal test suite exercises encryption, payload validation, public-key
 projection and import planning with disposable fixtures. The optional
 `tests/workspace-import-postgres.mjs` checks the actual application schema and

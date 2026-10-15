@@ -61,6 +61,9 @@ const company = z
   .strict()
   .refine((s) => s.packageBenefits.length === s.packageBenefitsAr.length);
 const logoOnly = z.object({ name: text(200), logo: image }).strict();
+const nameOnly = z
+  .object({ name: text(200), create: z.literal(true) })
+  .strict();
 const amendment = z
   .object({
     name: text(200),
@@ -79,7 +82,7 @@ const payloadSchema = z
     projectRef: z.string().regex(/^[a-z]{20}$/),
     operationId: z.string().uuid(),
     sponsors: z
-      .array(z.union([company, logoOnly, amendment]))
+      .array(z.union([company, logoOnly, amendment, nameOnly]))
       .min(1)
       .max(20),
   })
@@ -354,7 +357,36 @@ export function planImport(payload, state) {
   for (const s of payload.sponsors) {
     const previous = matchOne(state.sponsors, s.name);
     let row;
-    if (s.update) {
+    if (s.create) {
+      const data = previous
+        ? structuredClone(previous.data)
+        : {
+            name: s.name,
+            packageId: "",
+            contact: "",
+            mobile: "",
+            email: "",
+            approval: "Not Approved",
+            approvalDate: "",
+            poIssued: false,
+            poNumber: "",
+            poDate: "",
+            boothSize: "",
+            boothLocation: "",
+            value: null,
+            consideration: "",
+            payments: [],
+            benefits: [],
+            notes: "",
+          };
+      sponsorSchema.parse(data);
+      row = {
+        id: previous?.id || randomUUID(),
+        previous,
+        data,
+        package_id: previous?.package_id ?? null,
+      };
+    } else if (s.update) {
       if (!previous)
         throw new Error("An amendment requires an existing sponsor.");
       const data = structuredClone(previous.data);
