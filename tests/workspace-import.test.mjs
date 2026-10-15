@@ -780,3 +780,80 @@ test("Additive sponsor updates preserve commitments and independent PO/payment s
       /schema/,
     );
 });
+
+test("Contact amendments preserve existing channels and statuses while recording a requested benefit", () => {
+  const seed = planImport(fixture(), emptyState());
+  const previous = structuredClone(seed.sponsors[0]);
+  previous.revision = 2;
+  previous.data.contact = "Previous fixture contact";
+  previous.data.mobile = "+966501234567";
+  previous.data.email = "previous-contact@example.test";
+  previous.data.approval = "Approved";
+  previous.data.poIssued = true;
+  previous.data.benefits[0].completed = true;
+  const payload = validatePayload(
+    {
+      version: 1,
+      projectRef,
+      operationId: randomUUID(),
+      sponsors: [
+        {
+          name: previous.data.name,
+          update: {
+            value: 1500,
+            contact: "New fixture contact",
+            benefitsAppend: [
+              {
+                title:
+                  "Requested screen visibility; organizer confirmation pending.",
+                titleAr: "طلب ظهور على الشاشات؛ بانتظار تأكيد المنظمين.",
+              },
+            ],
+            notesAppend:
+              "Updated designated contact; no replacement contact channels supplied.",
+          },
+        },
+      ],
+    },
+    projectRef,
+  );
+  const result = planImport(payload, {
+    packages: seed.packages,
+    sponsors: [previous],
+    attachments: [],
+  });
+  assert.equal(result.packages.length, 0);
+  const data = result.sponsors[0].data;
+  assert.equal(data.value, 1500);
+  assert.equal(data.contact, "New fixture contact");
+  assert.deepEqual(data.benefits[0], previous.data.benefits[0]);
+  assert.equal(data.benefits[1].completed, false);
+  assert.match(data.benefits[1].title, /Requested.*pending/);
+  for (const field of Object.keys(previous.data).filter(
+    (f) => !["value", "contact", "benefits", "notes"].includes(f),
+  ))
+    assert.deepEqual(data[field], previous.data[field]);
+  assert.deepEqual(
+    decryptEnvelope(encryptEnvelope(payload, key), key, projectRef),
+    payload,
+  );
+  assert.throws(
+    () =>
+      validatePayload(
+        {
+          ...payload,
+          sponsors: [
+            {
+              ...payload.sponsors[0],
+              update: {
+                ...payload.sponsors[0].update,
+                contact: "x".repeat(101),
+              },
+            },
+          ],
+        },
+        projectRef,
+      ),
+    /schema/,
+  );
+});

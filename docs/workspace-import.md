@@ -48,6 +48,8 @@ Use `benefitsAppend` instead of `benefits` for additional commitments that must
 preserve all existing benefits. The two modes are mutually exclusive. An
 explicit `approval` field may update only the approval status; purchase order
 fields, approval dates and recorded payments remain independent and unchanged.
+An explicit `contact` updates the contact person's name only. Existing phone and
+email fields remain unchanged when no replacement details have been supplied.
 
 To add a sponsor when only its name has been supplied, an entry may contain
 `name` and `create: true`. It creates an unassigned record with an undetermined

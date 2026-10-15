@@ -70,6 +70,7 @@ const amendment = z
     update: z
       .object({
         value: money,
+        contact: text(100).optional(),
         benefits: z.array(benefit).max(300).optional(),
         benefitsAppend: z.array(benefit).max(300).optional(),
         approval: z
@@ -424,6 +425,7 @@ export function planImport(payload, state) {
               };
             });
       data.value = s.update.value;
+      if (s.update.contact !== undefined) data.contact = s.update.contact;
       if (s.update.approval !== undefined) data.approval = s.update.approval;
       if (!data.notes.includes(s.update.notesAppend))
         data.notes = [data.notes, s.update.notesAppend]
