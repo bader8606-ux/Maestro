@@ -700,3 +700,83 @@ test("Name-only sponsor creation uses empty independent defaults and preserves e
     /schema/,
   );
 });
+
+test("Additive sponsor updates preserve commitments and independent PO/payment state", () => {
+  const seed = planImport(fixture(), emptyState());
+  const previous = structuredClone(seed.sponsors[0]);
+  previous.revision = 2;
+  previous.data.benefits[0].completed = true;
+  previous.data.poIssued = true;
+  previous.data.poNumber = "Existing fixture order";
+  previous.data.payments = [
+    {
+      id: randomUUID(),
+      amount: 25,
+      date: "2026-10-01",
+      note: "Existing receipt",
+    },
+  ];
+  previous.data.notes = "Existing note.";
+  const payload = validatePayload(
+    {
+      version: 1,
+      projectRef,
+      operationId: randomUUID(),
+      sponsors: [
+        {
+          name: previous.data.name,
+          update: {
+            value: 2000,
+            approval: "In Progress",
+            benefitsAppend: [
+              { title: "Additional fixture benefit", titleAr: "ميزة إضافية" },
+            ],
+            notesAppend:
+              "Preliminary approval; final internal approvals pending.",
+          },
+        },
+      ],
+    },
+    projectRef,
+  );
+  const state = {
+    packages: seed.packages,
+    sponsors: [previous],
+    attachments: [],
+  };
+  const plan = planImport(payload, state);
+  assert.equal(plan.packages.length, 0);
+  const result = plan.sponsors[0];
+  assert.equal(result.data.approval, "In Progress");
+  assert.equal(result.data.value, 2000);
+  assert.equal(result.data.benefits.length, 2);
+  assert.deepEqual(result.data.benefits[0], previous.data.benefits[0]);
+  assert.equal(result.data.benefits[1].completed, false);
+  for (const field of Object.keys(previous.data).filter(
+    (f) => !["approval", "value", "benefits", "notes"].includes(f),
+  ))
+    assert.deepEqual(result.data[field], previous.data[field]);
+  assert.deepEqual(
+    decryptEnvelope(encryptEnvelope(payload, key), key, projectRef),
+    payload,
+  );
+  const repeat = planImport(payload, {
+    ...state,
+    sponsors: [{ ...result, revision: 3 }],
+  });
+  assert.equal(repeat.summary.updated, 0);
+  assert.deepEqual(repeat.sponsors[0].data, result.data);
+  for (const update of [
+    { ...payload.sponsors[0].update, benefits: [] },
+    { value: 2000, notesAppend: "Missing benefit mode" },
+    { ...payload.sponsors[0].update, approval: "Preliminary" },
+  ])
+    assert.throws(
+      () =>
+        validatePayload(
+          { ...payload, sponsors: [{ name: previous.data.name, update }] },
+          projectRef,
+        ),
+      /schema/,
+    );
+});

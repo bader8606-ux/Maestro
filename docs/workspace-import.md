@@ -44,6 +44,11 @@ their IDs and completion flags. Other sponsor fields and attachments remain
 unchanged. Notes are appended without duplicating the same text; a result beyond
 the notes length limit fails rather than truncating existing information.
 
+Use `benefitsAppend` instead of `benefits` for additional commitments that must
+preserve all existing benefits. The two modes are mutually exclusive. An
+explicit `approval` field may update only the approval status; purchase order
+fields, approval dates and recorded payments remain independent and unchanged.
+
 To add a sponsor when only its name has been supplied, an entry may contain
 `name` and `create: true`. It creates an unassigned record with an undetermined
 value, empty contact/benefit/payment fields and the normal initial approval/PO

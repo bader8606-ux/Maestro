@@ -70,10 +70,19 @@ const amendment = z
     update: z
       .object({
         value: money,
-        benefits: z.array(benefit).max(300),
+        benefits: z.array(benefit).max(300).optional(),
+        benefitsAppend: z.array(benefit).max(300).optional(),
+        approval: z
+          .enum(["Not Approved", "In Progress", "Approved"])
+          .optional(),
         notesAppend: text(3000),
       })
-      .strict(),
+      .strict()
+      .refine(
+        (update) =>
+          (update.benefits !== undefined) !==
+          (update.benefitsAppend !== undefined),
+      ),
   })
   .strict();
 const payloadSchema = z
@@ -159,7 +168,8 @@ export function validatePayload(input, projectRef) {
     );
   for (const s of data.sponsors) {
     if (s.logo) imageBytes(s.logo);
-    const benefits = s.benefits || s.update?.benefits;
+    const benefits =
+      s.benefits || s.update?.benefits || s.update?.benefitsAppend;
     if (
       benefits &&
       new Set(benefits.map((b) => normalized(b.title))).size !== benefits.length
@@ -391,26 +401,30 @@ export function planImport(payload, state) {
         throw new Error("An amendment requires an existing sponsor.");
       const data = structuredClone(previous.data);
       const used = new Set();
-      data.benefits = s.update.benefits.map((incoming) => {
-        const matches = data.benefits.filter(
-          (old) =>
-            normalized(old.title) === normalized(incoming.title) ||
-            (incoming.titleAr &&
-              old.titleAr &&
-              normalized(old.titleAr) === normalized(incoming.titleAr)),
-        );
-        if (matches.length > 1 || (matches[0] && used.has(matches[0].id)))
-          throw new Error(
-            "Existing benefit identities are ambiguous; amendment stopped.",
-          );
-        if (matches[0]) used.add(matches[0].id);
-        return {
-          id: matches[0]?.id || randomUUID(),
-          ...incoming,
-          completed: matches[0]?.completed || false,
-        };
-      });
+      data.benefits =
+        s.update.benefitsAppend !== undefined
+          ? mergeBenefits(data.benefits, s.update.benefitsAppend)
+          : s.update.benefits.map((incoming) => {
+              const matches = data.benefits.filter(
+                (old) =>
+                  normalized(old.title) === normalized(incoming.title) ||
+                  (incoming.titleAr &&
+                    old.titleAr &&
+                    normalized(old.titleAr) === normalized(incoming.titleAr)),
+              );
+              if (matches.length > 1 || (matches[0] && used.has(matches[0].id)))
+                throw new Error(
+                  "Existing benefit identities are ambiguous; amendment stopped.",
+                );
+              if (matches[0]) used.add(matches[0].id);
+              return {
+                id: matches[0]?.id || randomUUID(),
+                ...incoming,
+                completed: matches[0]?.completed || false,
+              };
+            });
       data.value = s.update.value;
+      if (s.update.approval !== undefined) data.approval = s.update.approval;
       if (!data.notes.includes(s.update.notesAppend))
         data.notes = [data.notes, s.update.notesAppend]
           .filter(Boolean)
