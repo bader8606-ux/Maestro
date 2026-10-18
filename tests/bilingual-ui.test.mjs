@@ -84,15 +84,21 @@ await test("English workspace persists paired Arabic benefits and undetermined s
       .waitFor();
     let dialog, sponsorId, packageId, benefitIds;
     const record = () =>
+      page.locator(".complete-record").filter({
+        has: page.getByRole("heading", {
+          name: "Bilingual fixture sponsor",
+          exact: true,
+        }),
+      });
+    const selectSponsor = () =>
       page
-        .locator(".complete-record")
-        .filter({
-          has: page.getByRole("heading", {
-            name: "Bilingual fixture sponsor",
-            exact: true,
-          }),
-        });
+        .getByRole("button", {
+          name: "View Bilingual fixture sponsor",
+          exact: true,
+        })
+        .click();
     const openSponsor = async () => {
+      await selectSponsor();
       await record()
         .getByRole("button", { name: "Edit Sponsor", exact: true })
         .click();
@@ -160,14 +166,12 @@ await test("English workspace persists paired Arabic benefits and undetermined s
         await dialog
           .getByRole("button", { name: "Save Package", exact: true })
           .click();
-        const card = page
-          .locator(".package-card")
-          .filter({
-            has: page.getByRole("heading", {
-              name: "Bilingual fixture package",
-              exact: true,
-            }),
-          });
+        const card = page.locator(".package-card").filter({
+          has: page.getByRole("heading", {
+            name: "Bilingual fixture package",
+            exact: true,
+          }),
+        });
         await card.waitFor();
         assert.deepEqual(await card.locator("h3").allTextContents(), [
           "Arabic Benefits",
@@ -391,6 +395,7 @@ await test("English workspace persists paired Arabic benefits and undetermined s
           .getByRole("button", { name: "Cancel", exact: true })
           .click();
         await page.reload();
+        await selectSponsor();
         await record().waitFor();
         const stat = (label) =>
           page
@@ -483,6 +488,7 @@ await test("English workspace persists paired Arabic benefits and undetermined s
           .getByRole("button", { name: "Cancel", exact: true })
           .click();
         await page.reload();
+        await selectSponsor();
         await record().getByText(edited, { exact: true }).waitFor();
         await openSponsor();
         await dialog

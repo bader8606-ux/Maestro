@@ -144,18 +144,22 @@ export async function cloudBrowser({
     assert.equal(rows.length, 1);
     sponsorIds.push(rows[0].id);
     await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
-    let card = page
-      .locator(".complete-record")
-      .filter({
-        has: page.getByRole("heading", {
-          name: "Cloud UI sponsor",
-          exact: true,
-        }),
-      });
+    await page
+      .getByRole("button", { name: "View Cloud UI sponsor", exact: true })
+      .click();
+    let card = page.locator(".complete-record").filter({
+      has: page.getByRole("heading", {
+        name: "Cloud UI sponsor",
+        exact: true,
+      }),
+    });
     await card.waitFor();
     assert.match(await card.innerText(), /74\.98/);
     assert.equal(page.url(), ui + "/Maestro/");
     await page.reload();
+    await page
+      .getByRole("button", { name: "View Cloud UI sponsor", exact: true })
+      .click();
     await card.waitFor();
     await card
       .getByRole("button", { name: "Edit Sponsor", exact: true })
@@ -172,16 +176,17 @@ export async function cloudBrowser({
       .filter({ hasText: "Sponsor updated successfully." })
       .waitFor();
     await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
-    card = page
-      .locator(".complete-record")
-      .filter({
-        has: page.getByRole("heading", {
-          name: "Cloud UI updated",
-          exact: true,
-        }),
-      });
+    card = page.locator(".complete-record").filter({
+      has: page.getByRole("heading", {
+        name: "Cloud UI updated",
+        exact: true,
+      }),
+    });
     await card.waitFor();
     assert.match(await card.innerText(), /25\.01/);
+    await page
+      .getByRole("button", { name: "View Cloud test sponsor", exact: true })
+      .click();
     await page
       .locator(".complete-record")
       .filter({
@@ -205,6 +210,9 @@ export async function cloudBrowser({
     await page.getByLabel("Email Address", { exact: true }).fill(viewer.email);
     await page.getByLabel("Password", { exact: true }).fill(viewer.password);
     await page.getByRole("button", { name: "Sign In", exact: true }).click();
+    await page
+      .getByRole("button", { name: "View Cloud UI updated", exact: true })
+      .click();
     await page
       .getByRole("heading", { name: "Cloud UI updated", exact: true })
       .waitFor();

@@ -779,7 +779,9 @@ function Dashboard({
     [approval, setApproval] = useState(""),
     [po, setPo] = useState(""),
     [exportBusy, setExportBusy] = useState(""),
-    [refreshBusy, setRefreshBusy] = useState(false);
+    [refreshBusy, setRefreshBusy] = useState(false),
+    [selectedId, setSelectedId] = useState<string | null>(null);
+  const detailsRef = useRef<HTMLElement>(null);
   const filtered = sponsors.filter(
     (s) =>
       (!search || s.name.toLowerCase().includes(search.toLowerCase())) &&
@@ -787,6 +789,22 @@ function Dashboard({
       (!approval || s.approval === approval) &&
       (!po || s.poIssued === (po === "yes")),
   );
+  const selectedSponsor = filtered.find((s) => s.id === selectedId);
+  useEffect(() => {
+    if (selectedId && !selectedSponsor) setSelectedId(null);
+  }, [selectedId, selectedSponsor]);
+  const selectSponsor = (s: Sponsor) => {
+    setSelectedId(s.id);
+    requestAnimationFrame(() => {
+      detailsRef.current?.focus({ preventScroll: true });
+      detailsRef.current?.scrollIntoView({
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+          ? "instant"
+          : "smooth",
+        block: "start",
+      });
+    });
+  };
   const total =
       sponsors.reduce((a, s) => a + Math.round((s.value ?? 0) * 100), 0) / 100,
     received =
@@ -1067,9 +1085,23 @@ function Dashboard({
             </thead>
             <tbody>
               {filtered.map((s) => (
-                <tr key={s.id}>
+                <tr
+                  key={s.id}
+                  className={
+                    selectedId === s.id ? "sponsor-row selected" : "sponsor-row"
+                  }
+                  onClick={(event) => {
+                    if (!(event.target as HTMLElement).closest("button, a"))
+                      selectSponsor(s);
+                  }}
+                >
                   <td>
-                    <button className="sponsor-name" onClick={() => open(s)}>
+                    <button
+                      className="sponsor-name"
+                      aria-expanded={selectedSponsor?.id === s.id}
+                      aria-controls="selected-sponsor-details"
+                      onClick={() => selectSponsor(s)}
+                    >
                       <SponsorAvatar sponsor={s} />
                       <span>
                         <strong>{s.name}</strong>
@@ -1104,7 +1136,7 @@ function Dashboard({
                     <IconButton
                       icon={ArrowUpRight}
                       label={"View " + s.name}
-                      onClick={() => open(s)}
+                      onClick={() => selectSponsor(s)}
                     />
                   </td>
                 </tr>
@@ -1144,16 +1176,32 @@ function Dashboard({
           </span>
         </div>
       </section>
-      <section className="complete-records" aria-label="All sponsor details">
-        {filtered.map((s) => (
+      <section
+        id="selected-sponsor-details"
+        className="complete-records selected-sponsor-details"
+        aria-label="Selected sponsor details"
+        ref={detailsRef}
+        tabIndex={-1}
+      >
+        {selectedSponsor ? (
           <CompleteRecord
-            key={s.id}
-            sponsor={s}
+            key={selectedSponsor.id}
+            sponsor={selectedSponsor}
             editable={editable}
-            open={() => open(s)}
+            open={() => open(selectedSponsor)}
             notify={notify}
           />
-        ))}
+        ) : filtered.length > 0 ? (
+          <div className="select-sponsor-prompt">
+            <Eye size={22} />
+            <div>
+              <h2>Select a sponsor</h2>
+              <p>
+                Click a sponsor in the table to view their full details here.
+              </p>
+            </div>
+          </div>
+        ) : null}
       </section>
       <div className="workspace-tip">
         <ShieldCheck size={18} />

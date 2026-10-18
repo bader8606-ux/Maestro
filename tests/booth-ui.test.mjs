@@ -112,6 +112,10 @@ await test("Booth dimensions and separate location/design attachments are editab
       page.locator(".complete-record").filter({
         has: page.getByRole("heading", { name: sponsorName, exact: true }),
       });
+    const selectSponsor = () =>
+      page
+        .getByRole("button", { name: "View " + sponsorName, exact: true })
+        .click();
     const section = (kind) =>
       dialog.locator(".attachment-section").filter({
         has: page.getByRole("heading", { name: labels[kind], exact: true }),
@@ -151,6 +155,7 @@ await test("Booth dimensions and separate location/design attachments are editab
       await dialog.getByRole("alert").waitFor({ state: "hidden" });
     };
     const open = async () => {
+      await selectSponsor();
       await record()
         .getByRole("button", { name: "Edit Sponsor", exact: true })
         .click();
@@ -265,6 +270,7 @@ await test("Booth dimensions and separate location/design attachments are editab
         }
         await close();
         await page.reload();
+        await selectSponsor();
         await record().waitFor();
         const displayed = await record().innerText();
         assert.match(displayed, /Booth Size/);
@@ -504,6 +510,7 @@ await test("Booth dimensions and separate location/design attachments are editab
         );
         await close();
         await page.reload();
+        await selectSponsor();
         await record().waitFor();
         assert.equal(
           await record()
@@ -536,14 +543,15 @@ await test("Booth dimensions and separate location/design attachments are editab
           viewer.setDefaultTimeout(10000);
           viewer.on("pageerror", (error) => errors.push(error.message));
           await viewer.goto(base);
-          const viewedRecord = viewer
-            .locator(".complete-record")
-            .filter({
-              has: viewer.getByRole("heading", {
-                name: sponsorName,
-                exact: true,
-              }),
-            });
+          await viewer
+            .getByRole("button", { name: "View " + sponsorName, exact: true })
+            .click();
+          const viewedRecord = viewer.locator(".complete-record").filter({
+            has: viewer.getByRole("heading", {
+              name: sponsorName,
+              exact: true,
+            }),
+          });
           await viewedRecord.waitFor();
           const previewImage = viewedRecord.getByRole("img", {
             name: "replaced-booth-map.png",

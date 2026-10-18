@@ -985,3 +985,44 @@ button.sponsor-logo-frame {
     padding: 12px;
   }
 }
+
+/* The table selects one sponsor for the details below. */
+.sponsor-row {
+  cursor: pointer;
+}
+.sponsor-row.selected,
+.sponsor-row.selected:hover {
+  background: #102b39;
+}
+.sponsor-row.selected td:first-child {
+  box-shadow: inset 3px 0 var(--accent);
+}
+.selected-sponsor-details {
+  scroll-margin-top: 24px;
+}
+.selected-sponsor-details:focus {
+  outline: none;
+}
+.selected-sponsor-details:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 16px;
+}
+.select-sponsor-prompt {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 24px;
+  border: 1px dashed var(--border);
+  border-radius: 16px;
+  color: var(--muted);
+}
+.select-sponsor-prompt h2 {
+  margin: 0 0 6px;
+  font-size: 17px;
+}
+.select-sponsor-prompt p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+}

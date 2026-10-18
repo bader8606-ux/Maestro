@@ -145,6 +145,9 @@ await test("Approval and purchase order pickers stage, persist and retry sponsor
         }),
       });
     const openSponsor = async (name) => {
+      await page
+        .getByRole("button", { name: "View " + name, exact: true })
+        .click();
       const record = page
         .locator(".complete-record")
         .filter({ has: page.getByRole("heading", { name, exact: true }) });
@@ -685,6 +688,12 @@ await test("Approval and purchase order pickers stage, persist and retry sponsor
         const viewer = await viewerContext.newPage();
         viewer.on("pageerror", (error) => errors.push(error.message));
         await viewer.goto(base);
+        await viewer
+          .getByRole("button", {
+            name: "View Attachment fixture retry",
+            exact: true,
+          })
+          .click();
         const record = viewer.locator(".complete-record").filter({
           has: viewer.getByRole("heading", {
             name: "Attachment fixture retry",

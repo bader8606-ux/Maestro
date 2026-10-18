@@ -158,6 +158,9 @@ await test("Sponsor logo controls choose, save, replace and retry real uploads",
       );
     };
     const openSponsor = async (name) => {
+      await page
+        .getByRole("button", { name: "View " + name, exact: true })
+        .click();
       const record = page.locator(".complete-record").filter({
         has: page.getByRole("heading", { name, exact: true }),
       });
@@ -462,6 +465,9 @@ await test("Sponsor logo controls choose, save, replace and retry real uploads",
         const viewer = await viewerContext.newPage();
         viewer.on("pageerror", (error) => errors.push(error.message));
         await viewer.goto(base);
+        await viewer
+          .getByRole("button", { name: "View Logo fixture retry", exact: true })
+          .click();
         const record = viewer.locator(".complete-record").filter({
           has: viewer.getByRole("heading", {
             name: "Logo fixture retry",

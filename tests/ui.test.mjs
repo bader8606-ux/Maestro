@@ -71,6 +71,7 @@ await test("English LTR dashboard works on desktop, tablet and mobile", async ()
       .getByRole("heading", { name: "Your next partnership starts here" })
       .waitFor();
     assert.equal(await page.locator("tbody tr").count(), 0);
+    assert.equal(await page.locator(".complete-record").count(), 0);
     await page.screenshot({ path: "/tmp/maestro-desktop.png", fullPage: true });
     await page
       .getByRole("button", { name: "Sponsorship Packages", exact: true })
@@ -243,13 +244,103 @@ await test("English LTR dashboard works on desktop, tablet and mobile", async ()
     await page
       .getByRole("button", { name: /UI test sponsor UI test contact/ })
       .waitFor();
+    assert.equal(await page.locator(".complete-record").count(), 0);
+    const additionalSponsor = await context.request.post(
+      base + "/api/sponsors",
+      {
+        headers: { "X-Requested-With": "Maestro" },
+        data: {
+          name: "UI alternate sponsor",
+          packageId: "",
+          contact: "Alternate contact",
+          mobile: "",
+          email: "",
+          approval: "Not Approved",
+          approvalDate: "",
+          poIssued: false,
+          poNumber: "",
+          poDate: "",
+          value: 750,
+          payments: [],
+          benefits: [],
+          notes: "Separate record for checking sponsor selection.",
+        },
+      },
+    );
+    assert.equal(additionalSponsor.ok(), true);
+    const additional = await additionalSponsor.json();
+    await page.getByRole("button", { name: "Refresh", exact: true }).click();
+    await page
+      .getByRole("button", { name: /UI alternate sponsor Alternate contact/ })
+      .waitFor();
+    assert.equal(await page.locator("tbody tr").count(), 2);
+    assert.equal(await page.locator(".complete-record").count(), 0);
+    const firstSponsor = page.getByRole("button", {
+      name: /UI test sponsor UI test contact/,
+    });
+    const alternateSponsor = page.getByRole("button", {
+      name: /UI alternate sponsor Alternate contact/,
+    });
+    const selectedRecord = page.locator(".complete-record");
+    await firstSponsor.focus();
+    await firstSponsor.press("Enter");
+    await selectedRecord
+      .getByRole("heading", { name: "UI test sponsor", exact: true })
+      .waitFor();
+    assert.equal(await selectedRecord.count(), 1);
+    assert.equal(await page.getByRole("dialog").count(), 0);
+    assert.equal(await firstSponsor.getAttribute("aria-expanded"), "true");
+    assert.equal(await alternateSponsor.getAttribute("aria-expanded"), "false");
+    await page.waitForFunction(
+      () => document.activeElement?.id === "selected-sponsor-details",
+    );
+    assert.equal(
+      await selectedRecord.evaluate((record) => {
+        const table = document.querySelector(".table-section");
+        return Boolean(
+          table &&
+          table.compareDocumentPosition(record) &
+            Node.DOCUMENT_POSITION_FOLLOWING,
+        );
+      }),
+      true,
+    );
+    await page
+      .getByRole("row")
+      .filter({ has: alternateSponsor })
+      .locator("td")
+      .nth(1)
+      .click();
+    await selectedRecord
+      .getByRole("heading", { name: "UI alternate sponsor", exact: true })
+      .waitFor();
+    assert.equal(await selectedRecord.count(), 1);
+    assert.equal(await firstSponsor.getAttribute("aria-expanded"), "false");
+    assert.equal(await alternateSponsor.getAttribute("aria-expanded"), "true");
+    assert.doesNotMatch(await selectedRecord.innerText(), /UI test contact/);
+    await page
+      .getByRole("button", { name: "View UI test sponsor", exact: true })
+      .click();
+    await selectedRecord
+      .getByRole("heading", { name: "UI test sponsor", exact: true })
+      .waitFor();
+    assert.equal(await page.getByRole("dialog").count(), 0);
+    await alternateSponsor.focus();
+    await alternateSponsor.press("Space");
+    await selectedRecord
+      .getByRole("heading", { name: "UI alternate sponsor", exact: true })
+      .waitFor();
     await page
       .getByRole("textbox", { name: "Search sponsors" })
       .fill("no-match");
     await page.getByRole("heading", { name: "No matching sponsors" }).waitFor();
+    assert.equal(await selectedRecord.count(), 0);
     await page.getByRole("button", { name: "Clear filters" }).click();
+    assert.equal(await selectedRecord.count(), 0);
+    await alternateSponsor.click();
     await page.getByLabel("Filter by approval status").selectOption("Approved");
     assert.equal(await page.locator("tbody tr").count(), 1);
+    assert.equal(await selectedRecord.count(), 0);
     await page.getByLabel("Filter by purchase order").selectOption("yes");
     await page.getByRole("heading", { name: "No matching sponsors" }).waitFor();
     await page.getByRole("button", { name: "Clear filters" }).click();
@@ -258,6 +349,10 @@ await test("English LTR dashboard works on desktop, tablet and mobile", async ()
     await page.getByRole("button", { name: "Export to Excel" }).click();
     const download = await downloadPromise;
     assert.equal(download.suggestedFilename(), "MAESTRO-Sponsors.xlsx");
+    await firstSponsor.click();
+    await selectedRecord
+      .getByRole("heading", { name: "UI test sponsor", exact: true })
+      .waitFor();
     assert.match(
       await page.locator(".complete-records").innerText(),
       /UI test contact/,
@@ -271,15 +366,15 @@ await test("English LTR dashboard works on desktop, tablet and mobile", async ()
       /ui-order\.pdf/,
     );
     await page.reload();
+    await firstSponsor.waitFor();
+    assert.equal(await selectedRecord.count(), 0);
+    await firstSponsor.click();
     await page
       .locator(".record-notes")
       .filter({ hasText: "ملاحظات الراعي للاختبار" })
       .waitFor();
-    await page
-      .getByRole("button", { name: /UI test sponsor UI test contact/ })
-      .waitFor();
-    await page
-      .getByRole("button", { name: /UI test sponsor UI test contact/ })
+    await selectedRecord
+      .getByRole("button", { name: "Edit Sponsor", exact: true })
       .click();
     dialog = page.getByRole("dialog").last();
     await dialog.getByRole("tab", { name: "Financials" }).click();
@@ -289,7 +384,20 @@ await test("English LTR dashboard works on desktop, tablet and mobile", async ()
     );
     await dialog.getByRole("tab", { name: "Attachments" }).click();
     assert.equal(await dialog.locator(".attachment-card").count(), 2);
+    await dialog.getByRole("tab", { name: "Financials" }).click();
+    await dialog
+      .getByLabel("Total Sponsorship Value", { exact: true })
+      .fill("11000");
+    await dialog
+      .getByRole("button", { name: "Save Changes", exact: true })
+      .click();
+    await page
+      .getByRole("status")
+      .filter({ hasText: "Sponsor updated successfully." })
+      .waitFor();
     await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+    assert.equal(await selectedRecord.count(), 1);
+    assert.match(await selectedRecord.innerText(), /11,000\.00/);
     for (const width of [834, 390]) {
       await page.setViewportSize({ width, height: 1000 });
       const overflow = await page.evaluate(() =>
@@ -340,6 +448,19 @@ await test("English LTR dashboard works on desktop, tablet and mobile", async ()
         fullPage: true,
       });
     }
+    await alternateSponsor.click();
+    await selectedRecord
+      .getByRole("heading", { name: "UI alternate sponsor", exact: true })
+      .waitFor();
+    const removed = await context.request.delete(
+      base + "/api/sponsors/" + additional.id,
+      { headers: { "X-Requested-With": "Maestro" } },
+    );
+    assert.equal(removed.ok(), true);
+    await page.getByRole("button", { name: "Refresh", exact: true }).click();
+    await alternateSponsor.waitFor({ state: "detached" });
+    assert.equal(await selectedRecord.count(), 0);
+    assert.equal(await page.locator("tbody tr").count(), 1);
     assert.deepEqual(errors, []);
   } finally {
     if (browser) await browser.close();

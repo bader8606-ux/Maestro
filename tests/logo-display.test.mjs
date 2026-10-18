@@ -143,9 +143,15 @@ await test("Sponsor logos are clear, previewable and editable without altering f
       page.locator(".complete-record").filter({
         has: page.getByRole("heading", { name, exact: true }),
       });
+    await page
+      .getByRole("button", { name: "View " + sponsorName, exact: true })
+      .click();
     await record().waitFor();
     let dialog;
     const open = async (name = sponsorName) => {
+      await page
+        .getByRole("button", { name: "View " + name, exact: true })
+        .click();
       await record(name)
         .getByRole("button", { name: "Edit Sponsor", exact: true })
         .click();
@@ -286,8 +292,17 @@ await test("Sponsor logos are clear, previewable and editable without altering f
         );
         const name = display.locator(".sponsor-logo-name");
         assert.equal(await name.innerText(), sponsorName);
-        assert.ok(
-          (await name.boundingBox()).y >= dimensions.y + dimensions.height,
+        assert.equal(
+          await display.evaluate((element) => {
+            const frame = element
+              .querySelector(".sponsor-logo-frame")
+              .getBoundingClientRect();
+            const name = element
+              .querySelector(".sponsor-logo-name")
+              .getBoundingClientRect();
+            return name.top >= frame.bottom;
+          }),
+          true,
         );
         await previewAndDownload(display, logo.name, true);
         await open();
@@ -403,6 +418,9 @@ await test("Sponsor logos are clear, previewable and editable without altering f
           viewer.setDefaultTimeout(10000);
           viewer.on("pageerror", (error) => errors.push(error.message));
           await viewer.goto(base);
+          await viewer
+            .getByRole("button", { name: "View " + sponsorName, exact: true })
+            .click();
           const viewedRecord = viewer.locator(".complete-record").filter({
             has: viewer.getByRole("heading", {
               name: sponsorName,
@@ -547,6 +565,9 @@ await test("Sponsor logos are clear, previewable and editable without altering f
             await route.fulfill({ response, headers });
           });
           await cloudPage.goto(base);
+          await cloudPage
+            .getByRole("button", { name: "View " + sponsorName, exact: true })
+            .click();
           const cloudRecord = cloudPage.locator(".complete-record").filter({
             has: cloudPage.getByRole("heading", {
               name: sponsorName,
