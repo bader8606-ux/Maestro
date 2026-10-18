@@ -124,3 +124,5 @@ The normal test suite exercises encryption, payload validation, public-key
 projection and import planning with disposable fixtures. The optional
 `tests/workspace-import-postgres.mjs` checks the actual application schema and
 transactions using an isolated PostgreSQL container; never point it at live data.
+
+Encrypted staging chunks may run in parallel because each uses its own workflow concurrency group and a locked, idempotent database insert. Wait for every staging run to succeed before submitting dry-run or apply. Key preparation and final imports retain the shared serialization group.
