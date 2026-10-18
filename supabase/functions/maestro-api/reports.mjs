@@ -27,6 +27,7 @@ const money = (n) =>
   }).format(n);
 const attachmentSection = (kind) =>
   ({
+    quotation: "Quotation Attachments",
     approval: "Approval Attachments",
     "purchase-order": "Purchase Order Attachments",
     logo: "Sponsor Logo",

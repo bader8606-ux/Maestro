@@ -545,6 +545,7 @@ app.post(
       return res.status(404).json({ error: "Sponsor not found." });
     const kind = z
       .enum([
+        "quotation",
         "approval",
         "purchase-order",
         "logo",
@@ -825,15 +826,17 @@ app.get("/api/export/excel", async (req, res, next) => {
       for (const a of s.attachments)
         attachments.addRow([
           s.name,
-          a.kind === "purchase-order"
-            ? "Purchase Order Attachments"
-            : a.kind === "approval"
-              ? "Approval Attachments"
-              : a.kind === "booth-location"
-                ? "Booth Location Attachments"
-                : a.kind === "booth-design"
-                  ? "Booth Design Attachments"
-                  : "Sponsor Logo",
+          a.kind === "quotation"
+            ? "Quotation Attachments"
+            : a.kind === "purchase-order"
+              ? "Purchase Order Attachments"
+              : a.kind === "approval"
+                ? "Approval Attachments"
+                : a.kind === "booth-location"
+                  ? "Booth Location Attachments"
+                  : a.kind === "booth-design"
+                    ? "Booth Design Attachments"
+                    : "Sponsor Logo",
           a.name,
           a.createdAt,
         ]);

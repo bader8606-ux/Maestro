@@ -29,6 +29,7 @@ const fields = {
   updatedAt: "2026-10-07T00:00:00.000Z",
 };
 const sections = [
+  ["quotation", "Quotation Attachments", "quotation.png"],
   ["approval", "Approval Attachments", "approval.png"],
   ["purchase-order", "Purchase Order Attachments", "order.png"],
   ["logo", "Sponsor Logo", "logo.png"],

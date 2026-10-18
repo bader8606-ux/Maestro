@@ -3,10 +3,10 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: Prepare an ephemeral key, check encrypted records, or apply them
+        description: Prepare a key, stage encrypted quotation chunks, check records, or apply them
         type: choice
         required: true
-        options: [prepare, dry-run, apply]
+        options: [prepare, stage, dry-run, apply]
       envelope:
         description: Encrypted envelope only; never enter names, amounts, files or credentials
         type: string

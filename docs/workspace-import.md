@@ -18,8 +18,70 @@ deployment; it does not create or upgrade any hosting resource.
 4. Dispatch `dry-run` with the ciphertext, inspect the aggregate creation/update
    counts, then dispatch `apply` for already authorized changes. Never enter
    plaintext business records or credentials in workflow inputs. Embedded logo
-   bytes must be verified originals, not generated artwork. Split large images
-   into separate imports; the full envelope limit still applies.
+   bytes must be verified originals, not generated artwork. Separate small logo
+   imports must still fit the full envelope limit. Original PDF quotations use
+   the protected chunk staging procedure below when they exceed that limit.
+
+## Original PDF quotations
+
+Quotation imports require an existing, unambiguous sponsor. They add only private
+`quotation` attachments; every sponsor field, package, benefit, independent
+approval/PO state and payment remains unchanged. An added attachment updates the
+record's revision and Last Updated time. Quotations are never filed as purchase
+orders or approval evidence.
+
+Use a single current public key, project reference and operation UUID for the
+whole batch. The exported helper accepts original PDF bytes as a Buffer:
+
+```js
+const { quotation, stages } = buildQuotationStages({
+  projectRef,
+  operationId,
+  sponsorName,
+  fileName, // original filename, with a .pdf extension
+  bytes, // original bytes; do not regenerate or recompress the PDF
+});
+```
+
+For each item in `stages`, call `encryptEnvelope(stage, publicKey)` locally and
+dispatch the workflow with `mode: "stage"` and only that encrypted envelope.
+The helper uses 32,000-byte chunks whose authenticated envelopes remain below
+60 KB even for incompressible bytes. Successful stage runs store immutable
+chunks in the restricted settings table, bound to the project, key, operation,
+sponsor, file ID, filename, checksum, size, chunk count and index. Staging does
+not change sponsor records or create visible attachments. A repeated identical
+chunk is safe; changed content at the same identity stops the import. Chunks
+expire with the two-hour import key; the next `prepare` removes expired chunks.
+
+Then encrypt and dispatch `dry-run` and `apply` using this final payload shape:
+
+```js
+{
+  version: 1,
+  projectRef,
+  operationId,
+  sponsors: [{ name: sponsorName, quotations: [quotation] }]
+}
+```
+
+One batch can contain at most ten original PDFs, each no larger than 10 MB.
+Descriptors contain `fileId`, `name`, `mime: "application/pdf"`, `sha256`, `size`
+and `total`; they contain no file bytes. The runner assembles all chunks, checks
+their ownership, count, expiry, exact length, PDF signature and SHA-256, then
+checks existing private quotation contents for byte-identical duplicates. An
+identical file already attached to that sponsor is preserved. Files belonging
+to another sponsor cannot suppress or receive the import.
+
+Each new private upload is downloaded again and checked against the original
+checksum before metadata is committed. The transaction checks the sponsor
+revision, full data and package association, as well as the existing quotation
+metadata snapshot. Concurrent changes stop the operation and clean only its
+uncommitted private uploads. It verifies the saved metadata, writes the private
+replay marker, and removes that operation's staged chunks atomically. Replaying
+the same committed operation cannot create duplicate attachments. Logs contain
+only generic success messages and aggregate counts, never filenames, original
+bytes, chunks, decrypted records, SQL or credentials. Remove owner-only local
+plaintext and ciphertext temporary files after the verified import.
 
 The runner matches sponsor and package names case-insensitively, rejects ambiguous
 matches, and preserves contacts, payments, independent approval/PO statuses,

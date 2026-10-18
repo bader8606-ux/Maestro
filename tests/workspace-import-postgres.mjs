@@ -4,9 +4,13 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { randomUUID, randomBytes } from "node:crypto";
 import { test } from "node:test";
 import {
+  assembleQuotationFiles,
+  buildQuotationStages,
+  createImportKey,
+  stageSql,
   planImport,
   transactionSql,
   validatePayload,
@@ -314,6 +318,87 @@ test("Actual logo metadata attaches to the correct owner and protected import se
       query(
         "set role authenticated; select data from public.maestro_settings where id='import-key'",
       ),
+    /permission denied/,
+  );
+});
+
+test("Actual quotation staging verifies ownership, imports without changing sponsor data and clears staged chunks", async () => {
+  for (const name of [
+    "20261007000100_booth_details.sql",
+    "20261018000100_quotation_attachments.sql",
+  ])
+    query(
+      await readFile(
+        new URL("../supabase/migrations/" + name, import.meta.url),
+        "utf8",
+      ),
+    );
+  const before = state();
+  const sponsor = before.sponsors.find(
+    (row) => row.data.name === "FIXTURE PRESERVATION COMPANY",
+  );
+  const key = createImportKey();
+  query(
+    `insert into maestro_settings(id,data) values('import-key',${value(key)}) on conflict(id) do update set data=excluded.data`,
+  );
+  const operationId = randomUUID();
+  const bytes = Buffer.concat([
+    Buffer.from("%PDF-1.7\n"),
+    randomBytes(42000),
+    Buffer.from("\n%%EOF"),
+  ]);
+  const file = buildQuotationStages({
+    projectRef,
+    operationId,
+    sponsorName: sponsor.data.name,
+    fileName: "Fixture quotation.pdf",
+    bytes,
+  });
+  for (const part of file.stages) {
+    assert.equal(query(stageSql(part, key)), "t");
+    assert.equal(query(stageSql(part, key)), "t");
+  }
+  const stagedRows = json(
+    `select coalesce(json_agg(p),'[]') from(select data from maestro_settings where id like ${quote("import-stage:" + operationId + ":%")})p`,
+  );
+  const payload = validatePayload(
+    {
+      version: 1,
+      projectRef,
+      operationId,
+      sponsors: [{ name: sponsor.data.name, quotations: [file.quotation] }],
+    },
+    projectRef,
+  );
+  const quotationFiles = assembleQuotationFiles(payload, stagedRows, key);
+  assert.deepEqual(quotationFiles.get(file.quotation.fileId), bytes);
+  const plan = planImport(payload, { ...before, quotationFiles });
+  assert.deepEqual(plan.sponsors[0].data, sponsor.data);
+  assert.equal(plan.quotations.length, 1);
+  const sql = transactionSql(plan, payload, "f".repeat(64));
+  const summary = json(sql);
+  assert.equal(summary.verified, true);
+  assert.equal(summary.quotationsAdded, 1);
+  assert.deepEqual(json(sql), summary);
+  const after = state();
+  const saved = after.sponsors.find((row) => row.id === sponsor.id);
+  assert.deepEqual(saved.data, sponsor.data);
+  assert.equal(saved.revision, sponsor.revision + 1);
+  const quoteFiles = after.attachments.filter(
+    (a) => a.sponsor_id === sponsor.id && a.kind === "quotation",
+  );
+  assert.equal(quoteFiles.length, 1);
+  assert.equal(quoteFiles[0].id, plan.quotations[0].id);
+  assert.equal(quoteFiles[0].path, plan.quotations[0].path);
+  assert.equal(
+    query(
+      `select count(*) from maestro_settings where id like ${quote("import-stage:" + operationId + ":%")}`,
+    ),
+    "0",
+  );
+  assert.throws(
+    () =>
+      query("set role authenticated; select * from public.maestro_attachments"),
     /permission denied/,
   );
 });

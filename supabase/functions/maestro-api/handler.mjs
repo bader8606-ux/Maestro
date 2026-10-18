@@ -308,6 +308,7 @@ export function createHandler(db, { origins = [] } = {}) {
           const form = await req.formData(),
             kind = z
               .enum([
+                "quotation",
                 "approval",
                 "purchase-order",
                 "logo",

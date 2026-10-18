@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { randomUUID } from "node:crypto";
+import { randomUUID, randomBytes, createHash } from "node:crypto";
 import {
   createImportKey,
   decryptEnvelope,
@@ -10,6 +10,12 @@ import {
   planImport,
   transactionSql,
   validatePayload,
+  validateStagePayload,
+  buildQuotationStages,
+  assembleQuotationFiles,
+  stageSql,
+  quotationBytes,
+  verifyStoredQuotation,
 } from "../scripts/workspace-import.mjs";
 import { publicImportKey } from "../supabase/functions/maestro-api/import-key.mjs";
 import { createHandler } from "../supabase/functions/maestro-api/handler.mjs";
@@ -64,6 +70,274 @@ const db = (row, error = null) => ({
       },
     };
   },
+});
+
+const quotationFixture = (size = 213885) => {
+  const bytes = Buffer.concat([
+    Buffer.from("%PDF-1.7\n"),
+    randomBytes(size - 9),
+  ]);
+  const operationId = randomUUID();
+  const name = "Encrypted fixture company";
+  const built = buildQuotationStages({
+    projectRef,
+    operationId,
+    sponsorName: name,
+    fileName: "Original quotation.pdf",
+    bytes,
+  });
+  const payload = validatePayload(
+    {
+      version: 1,
+      projectRef,
+      operationId,
+      sponsors: [{ name, quotations: [built.quotation] }],
+    },
+    projectRef,
+  );
+  const rows = built.stages.map((s) => ({
+    data: { ...s, keyId: key.keyId, expiresAt: key.expiresAt },
+  }));
+  return { ...built, bytes, payload, rows };
+};
+
+test("Original PDFs cross bounded authenticated chunks without changing bytes or exposing file names", () => {
+  const { quotation, stages, bytes, payload, rows } = quotationFixture();
+  assert.equal(stages.length, 7);
+  assert.equal(quotation.size, bytes.length);
+  assert.equal(
+    quotation.sha256,
+    createHash("sha256").update(bytes).digest("hex"),
+  );
+  for (const stage of stages) {
+    const envelope = encryptEnvelope(stage, key);
+    assert.ok(
+      envelope.length < 60000,
+      `Encrypted chunk length ${envelope.length}`,
+    );
+    assert.equal(envelope.includes(quotation.name), false);
+    assert.deepEqual(decryptEnvelope(envelope, key, projectRef), stage);
+  }
+  assert.deepEqual(
+    decryptEnvelope(encryptEnvelope(payload, key), key, projectRef),
+    payload,
+  );
+  assert.ok(
+    assembleQuotationFiles(payload, [...rows].reverse(), key)
+      .get(quotation.fileId)
+      .equals(bytes),
+  );
+  const longNames = structuredClone(stages[0]);
+  longNames.stage.name = "q".repeat(236) + ".pdf";
+  longNames.stage.sponsorName = "s".repeat(200);
+  assert.ok(encryptEnvelope(longNames, key).length < 60000);
+});
+
+test("Quotation assembly refuses missing, repeated, corrupt, expired and cross-owner/project/operation stages", () => {
+  const { rows, payload } = quotationFixture();
+  assert.throws(
+    () => assembleQuotationFiles(payload, rows.slice(1), key),
+    /incomplete/,
+  );
+  assert.throws(
+    () => assembleQuotationFiles(payload, [...rows.slice(1), rows[1]], key),
+    /ownership/,
+  );
+  for (const mutate of [
+    (r) => {
+      r.data.keyId = randomUUID();
+    },
+    (r) => {
+      r.data.expiresAt = new Date(0).toISOString();
+    },
+    (r) => {
+      r.data.stage.sponsorName = "Another sponsor";
+    },
+    (r) => {
+      r.data.stage.name = "Another file.pdf";
+    },
+    (r) => {
+      r.data.projectRef = "zyxwvutsrqponmlkjihgf";
+    },
+    (r) => {
+      r.data.operationId = randomUUID();
+    },
+    (r) => {
+      const b = Buffer.from(r.data.stage.base64, "base64");
+      b[200] ^= 1;
+      r.data.stage.base64 = b.toString("base64");
+    },
+  ]) {
+    const changed = structuredClone(rows);
+    mutate(changed[0]);
+    assert.throws(() => assembleQuotationFiles(payload, changed, key));
+  }
+  const short = structuredClone(rows[0].data);
+  delete short.keyId;
+  delete short.expiresAt;
+  short.stage.base64 = "YQ==";
+  assert.throws(() => validateStagePayload(short, projectRef), /chunk/);
+});
+
+test("Only original bounded PDF quotation descriptors are accepted, with safe filenames and unique file identities", () => {
+  const { payload, bytes, quotation } = quotationFixture(1000);
+  assert.ok(quotationBytes(bytes, quotation).equals(bytes));
+  assert.throws(
+    () => quotationBytes(Buffer.from("%PDF-false"), quotation),
+    /checksum/,
+  );
+  assert.throws(
+    () =>
+      buildQuotationStages({
+        projectRef,
+        operationId: randomUUID(),
+        sponsorName: "Fixture",
+        fileName: "x.pdf",
+        bytes: Buffer.from("image"),
+      }),
+    /signature/,
+  );
+  for (const change of [
+    { name: "../quote.pdf" },
+    { name: "file\n.pdf" },
+    { name: "quote.png" },
+    { mime: "image/png" },
+    { kind: "approval" },
+    { size: 10 * 1024 * 1024 + 1 },
+  ]) {
+    const altered = structuredClone(payload);
+    Object.assign(altered.sponsors[0].quotations[0], change);
+    assert.throws(() => validatePayload(altered, projectRef), /schema/);
+  }
+  const repeated = structuredClone(payload);
+  repeated.sponsors[0].quotations.push(quotation);
+  assert.throws(
+    () => validatePayload(repeated, projectRef),
+    /duplicate quotation/,
+  );
+});
+
+test("Quotation staging SQL verifies immutable chunks and current keys without touching business records", () => {
+  const { stages } = quotationFixture(1000);
+  stages[0].stage.name = "Original '$quotation_stage$ file.pdf";
+  const sql = stageSql(stages[0], key);
+  assert.match(sql, /lock table public\.maestro_settings/);
+  assert.match(sql, /Quotation stage conflict/);
+  assert.match(sql, /Quotation staging key expired/);
+  assert.match(sql, /select true as verified/);
+  assert.equal(sql.includes("maestro_sponsors"), false);
+  const delimiter = sql.match(/do (\$stage_[a-f0-9]+\$)/)[1];
+  assert.equal(sql.split(delimiter).length, 3);
+  assert.throws(
+    () => stageSql(stages[0], { ...key, expiresAt: new Date(0).toISOString() }),
+    /current/,
+  );
+});
+
+test("Quotation-only planning preserves complete sponsor data and separates files from approval, PO and logos", () => {
+  const { payload, rows, quotation, bytes } = quotationFixture(1000);
+  const seed = planImport(fixture(), emptyState());
+  const previous = { ...seed.sponsors[0], revision: 8 };
+  previous.data.approval = "Approved";
+  previous.data.poIssued = true;
+  previous.data.payments = [
+    { id: randomUUID(), amount: 50, date: "2026-10-01", note: "Receipt" },
+  ];
+  const approval = {
+    id: randomUUID(),
+    sponsor_id: previous.id,
+    kind: "approval",
+    path: "approval",
+  };
+  const otherOwner = {
+    id: randomUUID(),
+    sponsor_id: randomUUID(),
+    kind: "quotation",
+    path: "other-owner",
+    sha256: quotation.sha256,
+  };
+  const state = {
+    packages: seed.packages,
+    sponsors: [previous],
+    attachments: [approval, otherOwner],
+    quotationFiles: assembleQuotationFiles(payload, rows, key),
+  };
+  const plan = planImport(payload, state);
+  assert.deepEqual(plan.sponsors[0].data, previous.data);
+  assert.equal(plan.sponsors[0].changed, false);
+  assert.equal(plan.sponsors[0].package_id, previous.package_id);
+  assert.equal(plan.packages.length, 0);
+  assert.equal(plan.logos.length, 0);
+  assert.equal(plan.quotations.length, 1);
+  assert.equal(plan.quotations[0].sponsor_id, previous.id);
+  assert.equal(plan.quotations[0].kind, "quotation");
+  assert.equal(plan.quotations[0].name, quotation.name);
+  assert.ok(plan.quotations[0].bytes.equals(bytes));
+  assert.equal(plan.summary.quotationsAdded, 1);
+  const existing = { ...plan.quotations[0] };
+  delete existing.bytes;
+  const repeated = planImport(payload, {
+    ...state,
+    attachments: [...state.attachments, existing],
+  });
+  assert.equal(repeated.quotations.length, 0);
+  assert.equal(repeated.summary.quotationsPreserved, 1);
+  assert.throws(
+    () => planImport(payload, { ...state, sponsors: [] }),
+    /existing sponsor/,
+  );
+  assert.throws(
+    () =>
+      planImport(payload, {
+        ...state,
+        sponsors: [previous, { ...previous, id: randomUUID() }],
+      }),
+    /ambiguous/,
+  );
+  assert.throws(
+    () => planImport(payload, { ...state, quotationFiles: new Map() }),
+    /signature|checksum/,
+  );
+  const sql = transactionSql(plan, payload, "f".repeat(64));
+  assert.match(sql, /kind='quotation'/);
+  assert.match(sql, /Quotation import conflict/);
+  assert.match(sql, /revision=8/);
+  assert.match(sql, /Import verification failed/);
+  assert.match(
+    sql,
+    /delete from public\.maestro_settings where id like 'import-stage:/,
+  );
+});
+
+test("Private quotation readback checks exact original bytes before attachment commit", async () => {
+  const { bytes, quotation } = quotationFixture(1000);
+  const good = {
+    download: async () => ({ data: new Blob([bytes]), error: null }),
+  };
+  assert.ok(
+    (
+      await verifyStoredQuotation(good, {
+        ...quotation,
+        path: "private-original",
+      })
+    ).equals(bytes),
+  );
+  const corrupt = Buffer.from(bytes);
+  corrupt[50] ^= 1;
+  await assert.rejects(
+    verifyStoredQuotation(
+      { download: async () => ({ data: new Blob([corrupt]) }) },
+      quotation,
+    ),
+    /checksum/,
+  );
+  await assert.rejects(
+    verifyStoredQuotation(
+      { download: async () => ({ error: new Error("not printed") }) },
+      quotation,
+    ),
+    /could not be verified/,
+  );
 });
 
 test("Encrypted workflow envelope binds payload, key and project without exposing business fields", () => {

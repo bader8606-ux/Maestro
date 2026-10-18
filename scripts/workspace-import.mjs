@@ -24,6 +24,8 @@ const algorithm = "RSA-OAEP-SHA256+A256GCM";
 const maxEnvelope = 60000;
 const maxPlaintext = 2 * 1024 * 1024;
 const keyLifetime = 2 * 60 * 60 * 1000;
+const quotationChunkSize = 32000;
+const maxQuotationSize = 10 * 1024 * 1024;
 const text = (max) => z.string().trim().min(1).max(max);
 const money = z
   .number()
@@ -61,6 +63,25 @@ const company = z
   .strict()
   .refine((s) => s.packageBenefits.length === s.packageBenefitsAr.length);
 const logoOnly = z.object({ name: text(200), logo: image }).strict();
+const quotation = z
+  .object({
+    fileId: z.string().uuid(),
+    name: text(240).refine(
+      (name) => !/[\r\n\0\\/]/.test(name) && /\.pdf$/i.test(name),
+    ),
+    mime: z.literal("application/pdf"),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/),
+    size: z.number().int().min(5).max(maxQuotationSize),
+    total: z
+      .number()
+      .int()
+      .min(1)
+      .max(Math.ceil(maxQuotationSize / quotationChunkSize)),
+  })
+  .strict();
+const quotationOnly = z
+  .object({ name: text(200), quotations: z.array(quotation).min(1).max(10) })
+  .strict();
 const nameOnly = z
   .object({ name: text(200), create: z.literal(true) })
   .strict();
@@ -93,9 +114,27 @@ const payloadSchema = z
     projectRef: z.string().regex(/^[a-z]{20}$/),
     operationId: z.string().uuid(),
     sponsors: z
-      .array(z.union([company, logoOnly, amendment, nameOnly]))
+      .array(z.union([company, logoOnly, amendment, nameOnly, quotationOnly]))
       .min(1)
       .max(20),
+  })
+  .strict();
+const stageSchema = z
+  .object({
+    version: z.literal(1),
+    projectRef: z.string().regex(/^[a-z]{20}$/),
+    operationId: z.string().uuid(),
+    stage: quotation
+      .extend({
+        sponsorName: text(200),
+        index: z.number().int().min(0),
+        base64: z
+          .string()
+          .min(1)
+          .max(Math.ceil(quotationChunkSize / 3) * 4)
+          .regex(/^[A-Za-z0-9+/]+={0,2}$/),
+      })
+      .strict(),
   })
   .strict();
 const envelopeSchema = z
@@ -163,6 +202,14 @@ export function validatePayload(input, projectRef) {
       "The encrypted import schema or project reference is invalid.",
     );
   const data = result.data;
+  const quotations = data.sponsors.flatMap((s) => s.quotations || []);
+  if (
+    quotations.length > 10 ||
+    new Set(quotations.map((q) => q.fileId)).size !== quotations.length
+  )
+    throw new Error(
+      "The encrypted import has too many or duplicate quotation files.",
+    );
   const names = data.sponsors.map((s) => normalized(s.name));
   if (new Set(names).size !== names.length)
     throw new Error(
@@ -189,6 +236,158 @@ export function validatePayload(input, projectRef) {
   return data;
 }
 
+export function validateStagePayload(input, projectRef) {
+  const result = stageSchema.safeParse(input);
+  if (!result.success || result.data.projectRef !== projectRef)
+    throw new Error("The encrypted quotation stage schema is invalid.");
+  const { stage } = result.data;
+  const bytes = Buffer.from(stage.base64, "base64");
+  if (
+    stage.index >= stage.total ||
+    stage.total !== Math.ceil(stage.size / quotationChunkSize) ||
+    bytes.toString("base64") !== stage.base64 ||
+    bytes.length !==
+      Math.min(
+        quotationChunkSize,
+        stage.size - stage.index * quotationChunkSize,
+      )
+  )
+    throw new Error("The encrypted quotation chunk is invalid.");
+  return result.data;
+}
+
+const validateEncryptedPayload = (input, ref) =>
+  input?.stage !== undefined
+    ? validateStagePayload(input, ref)
+    : validatePayload(input, ref);
+
+export function quotationBytes(bytes, expected) {
+  if (!Buffer.isBuffer(bytes)) bytes = Buffer.from(bytes);
+  if (
+    bytes.length !== expected.size ||
+    bytes.length > maxQuotationSize ||
+    bytes.toString("ascii", 0, 5) !== "%PDF-" ||
+    hash(bytes) !== expected.sha256
+  )
+    throw new Error(
+      "The original quotation PDF size, signature or checksum is invalid.",
+    );
+  return bytes;
+}
+
+export function buildQuotationStages({
+  projectRef,
+  operationId,
+  sponsorName,
+  fileName,
+  bytes,
+}) {
+  bytes = Buffer.from(bytes);
+  const file = quotation.parse({
+    fileId: randomUUID(),
+    name: fileName,
+    mime: "application/pdf",
+    sha256: hash(bytes),
+    size: bytes.length,
+    total: Math.ceil(bytes.length / quotationChunkSize),
+  });
+  quotationBytes(bytes, file);
+  const stages = Array.from({ length: file.total }, (_, index) =>
+    validateStagePayload(
+      {
+        version: 1,
+        projectRef,
+        operationId,
+        stage: {
+          ...file,
+          sponsorName,
+          index,
+          base64: bytes
+            .subarray(
+              index * quotationChunkSize,
+              (index + 1) * quotationChunkSize,
+            )
+            .toString("base64"),
+        },
+      },
+      projectRef,
+    ),
+  );
+  return { quotation: file, stages };
+}
+
+export function assembleQuotationFiles(payload, rows, key, now = Date.now()) {
+  const files = new Map();
+  for (const sponsor of payload.sponsors)
+    for (const file of sponsor.quotations || []) {
+      const chunks = rows.filter(
+        (r) =>
+          r.data.operationId === payload.operationId &&
+          r.data.stage?.fileId === file.fileId,
+      );
+      if (chunks.length !== file.total)
+        throw new Error("The quotation staging is incomplete.");
+      const indexed = new Map();
+      for (const row of chunks) {
+        const { keyId, expiresAt, ...input } = row.data;
+        const stage = validateStagePayload(input, payload.projectRef).stage;
+        if (
+          keyId !== key.keyId ||
+          Date.parse(expiresAt) <= now ||
+          expiresAt !== key.expiresAt ||
+          normalized(stage.sponsorName) !== normalized(sponsor.name) ||
+          Object.keys(file).some((field) => stage[field] !== file[field]) ||
+          indexed.has(stage.index)
+        )
+          throw new Error(
+            "The quotation stage ownership or metadata could not be verified.",
+          );
+        indexed.set(stage.index, Buffer.from(stage.base64, "base64"));
+      }
+      files.set(
+        file.fileId,
+        quotationBytes(
+          Buffer.concat(
+            Array.from({ length: file.total }, (_, index) =>
+              indexed.get(index),
+            ),
+          ),
+          file,
+        ),
+      );
+    }
+  return files;
+}
+
+const stageId = (payload) =>
+  `import-stage:${payload.operationId}:${payload.stage.fileId}:${payload.stage.index}`;
+export function stageSql(input, key, now = Date.now()) {
+  const payload = validateStagePayload(input, input.projectRef);
+  if (
+    !key?.keyId ||
+    !Number.isFinite(Date.parse(key.expiresAt)) ||
+    Date.parse(key.expiresAt) <= now
+  )
+    throw new Error("A current quotation staging key is required.");
+  const data = { ...payload, keyId: key.keyId, expiresAt: key.expiresAt };
+  const marker = stageId(payload);
+  let delimiter;
+  do {
+    delimiter = "$stage_" + randomBytes(12).toString("hex") + "$";
+  } while (JSON.stringify(data).includes(delimiter));
+  return `begin;
+set local standard_conforming_strings=on;
+lock table public.maestro_settings in share row exclusive mode;
+do ${delimiter}
+begin
+if not exists(select 1 from public.maestro_settings where id='import-key' and data->>'keyId'=${sqlString(key.keyId)} and (data->>'expiresAt')::timestamptz>now()) then raise exception 'Quotation staging key expired'; end if;
+if exists(select 1 from public.maestro_settings where id=${sqlString(marker)} and data<>${sqlJson(data)}) then raise exception 'Quotation stage conflict'; end if;
+insert into public.maestro_settings(id,data) values(${sqlString(marker)},${sqlJson(data)}) on conflict(id) do nothing;
+end ${delimiter};
+select true as verified from public.maestro_settings where id=${sqlString(marker)} and data=${sqlJson(data)};
+commit;`;
+}
+
 export function createImportKey(now = Date.now()) {
   const { publicKey, privateKey } = generateKeyPairSync("rsa", {
     modulusLength: 3072,
@@ -208,7 +407,7 @@ const aad = (envelope) =>
     `${envelope.version}:${envelope.algorithm}:${envelope.projectRef}:${envelope.keyId}`,
   );
 export function encryptEnvelope(input, key, now = Date.now()) {
-  const payload = validatePayload(input, input.projectRef);
+  const payload = validateEncryptedPayload(input, input.projectRef);
   const expiry = Date.parse(key?.expiresAt);
   if (
     !key?.publicKey ||
@@ -296,7 +495,7 @@ export function decryptEnvelope(encoded, key, projectRef, now = Date.now()) {
       decipher.final(),
     ]);
     secret.fill(0);
-    return validatePayload(
+    return validateEncryptedPayload(
       JSON.parse(
         gunzipSync(compressed, { maxOutputLength: maxPlaintext }).toString(
           "utf8",
@@ -355,7 +554,9 @@ export function planImport(payload, state) {
   const packages = [],
     sponsors = [],
     logos = [],
-    packageGuards = [];
+    packageGuards = [],
+    quotations = [],
+    quotationGuards = [];
   const summary = {
     created: 0,
     updated: 0,
@@ -363,6 +564,8 @@ export function planImport(payload, state) {
     packagesUpdated: 0,
     logosAdded: 0,
     logosPreserved: 0,
+    quotationsAdded: 0,
+    quotationsPreserved: 0,
     total: payload.sponsors.length,
     verified: true,
   };
@@ -448,7 +651,7 @@ export function planImport(payload, state) {
       };
     } else if (!s.packageName) {
       if (!previous)
-        throw new Error("A logo-only import requires an existing sponsor.");
+        throw new Error("A file-only import requires an existing sponsor.");
       row = {
         id: previous.id,
         previous,
@@ -576,6 +779,49 @@ export function planImport(payload, state) {
     sponsors.push(row);
     if (!previous) summary.created++;
     else if (changed) summary.updated++;
+    if (s.quotations) {
+      const existing = state.attachments.filter(
+        (a) => a.sponsor_id === row.id && a.kind === "quotation",
+      );
+      quotationGuards.push({
+        sponsor_id: row.id,
+        attachments: structuredClone(existing),
+      });
+      for (const file of s.quotations) {
+        const bytes = quotationBytes(
+          state.quotationFiles?.get(file.fileId) || Buffer.alloc(0),
+          file,
+        );
+        const matches = existing.filter((a) => a.sha256 === file.sha256);
+        if (matches.length > 1)
+          throw new Error(
+            "Existing quotation files are duplicated; import stopped.",
+          );
+        if (matches.length) summary.quotationsPreserved++;
+        else if (
+          quotations.some(
+            (a) => a.sponsor_id === row.id && a.sha256 === file.sha256,
+          )
+        )
+          throw new Error(
+            "The encrypted import contains duplicate quotation content.",
+          );
+        else {
+          quotations.push({
+            id: randomUUID(),
+            sponsor_id: row.id,
+            kind: "quotation",
+            name: file.name,
+            mime: file.mime,
+            size: file.size,
+            sha256: file.sha256,
+            path: "import/" + randomUUID(),
+            bytes,
+          });
+          summary.quotationsAdded++;
+        }
+      }
+    }
     if (s.logo) {
       const existing = state.attachments.filter(
         (a) => a.sponsor_id === row.id && a.kind === "logo",
@@ -600,12 +846,21 @@ export function planImport(payload, state) {
       }
     }
   }
-  return { packages, packageGuards, sponsors, logos, summary };
+  return {
+    packages,
+    packageGuards,
+    sponsors,
+    logos,
+    quotations,
+    quotationGuards,
+    summary,
+  };
 }
 
 export function transactionSql(plan, payload, payloadHash) {
   const marker = "import:" + payload.operationId;
   const operations = [];
+  const files = [...plan.logos, ...(plan.quotations || [])];
   const nameCount = (table, name) =>
     `(select count(*) from public.maestro_${table} where lower(btrim(data->>'name'))=lower(btrim(${sqlString(name)})))`;
   for (const p of plan.packageGuards || [])
@@ -645,12 +900,22 @@ export function transactionSql(plan, payload, payloadHash) {
         `insert into public.maestro_sponsors(id,data,package_id) values(${sqlUuid(s.id)},${sqlJson(s.data)},${s.package_id ? sqlUuid(s.package_id) : "null"});`,
       );
   }
-  for (const a of plan.logos) {
+  for (const guard of plan.quotationGuards || []) {
     operations.push(
-      `if exists(select 1 from public.maestro_attachments where sponsor_id=${sqlUuid(a.sponsor_id)} and kind='logo') then raise exception 'Import conflict'; end if;`,
+      `if (select count(*) from public.maestro_attachments where sponsor_id=${sqlUuid(guard.sponsor_id)} and kind='quotation') <> ${guard.attachments.length} then raise exception 'Quotation import conflict'; end if;`,
     );
+    for (const a of guard.attachments)
+      operations.push(
+        `if not exists(select 1 from public.maestro_attachments where id=${sqlUuid(a.id)} and sponsor_id=${sqlUuid(a.sponsor_id)} and kind='quotation' and name=${sqlString(a.name)} and mime=${sqlString(a.mime)} and size=${a.size} and path=${sqlString(a.path)}) then raise exception 'Quotation import conflict'; end if;`,
+      );
+  }
+  for (const a of files) {
+    if (a.kind === "logo")
+      operations.push(
+        `if exists(select 1 from public.maestro_attachments where sponsor_id=${sqlUuid(a.sponsor_id)} and kind='logo') then raise exception 'Import conflict'; end if;`,
+      );
     operations.push(
-      `insert into public.maestro_attachments(id,sponsor_id,kind,name,mime,size,path) values(${sqlUuid(a.id)},${sqlUuid(a.sponsor_id)},'logo',${sqlString(a.name)},${sqlString(a.mime)},${a.size},${sqlString(a.path)});`,
+      `insert into public.maestro_attachments(id,sponsor_id,kind,name,mime,size,path) values(${sqlUuid(a.id)},${sqlUuid(a.sponsor_id)},${sqlString(a.kind)},${sqlString(a.name)},${sqlString(a.mime)},${a.size},${sqlString(a.path)});`,
     );
     operations.push(
       `update public.maestro_sponsors set revision=revision+1,updated_at=now() where id=${sqlUuid(a.sponsor_id)};`,
@@ -660,9 +925,13 @@ export function transactionSql(plan, payload, payloadHash) {
     operations.push(
       `if not exists(select 1 from public.maestro_sponsors where id=${sqlUuid(s.id)} and data=${sqlJson(s.data)} and package_id is not distinct from ${s.package_id ? sqlUuid(s.package_id) : "null"}) then raise exception 'Import verification failed'; end if;`,
     );
-  for (const a of plan.logos)
+  for (const a of files)
     operations.push(
-      `if not exists(select 1 from public.maestro_attachments where id=${sqlUuid(a.id)} and sponsor_id=${sqlUuid(a.sponsor_id)} and kind='logo' and path=${sqlString(a.path)}) then raise exception 'Import verification failed'; end if;`,
+      `if not exists(select 1 from public.maestro_attachments where id=${sqlUuid(a.id)} and sponsor_id=${sqlUuid(a.sponsor_id)} and kind=${sqlString(a.kind)} and path=${sqlString(a.path)} and name=${sqlString(a.name)} and mime=${sqlString(a.mime)} and size=${a.size}) then raise exception 'Import verification failed'; end if;`,
+    );
+  if (payload.sponsors.some((s) => s.quotations))
+    operations.push(
+      `delete from public.maestro_settings where id like ${sqlString("import-stage:" + payload.operationId + ":%")};`,
     );
   const stored = { hash: payloadHash, summary: plan.summary };
   // SQL dollar quoting is lexical: even a safely escaped string inside a DO
@@ -688,6 +957,13 @@ select data->'summary' as summary from public.maestro_settings where id=${sqlStr
 commit;`;
 }
 
+export async function verifyStoredQuotation(storage, file) {
+  const { data, error } = await storage.download(file.path);
+  if (error || !data)
+    throw new Error("The private quotation could not be verified.");
+  return quotationBytes(Buffer.from(await data.arrayBuffer()), file);
+}
+
 async function run() {
   const ref = process.env.SUPABASE_PROJECT_REF,
     token = process.env.SUPABASE_ACCESS_TOKEN,
@@ -695,7 +971,7 @@ async function run() {
   if (
     !token ||
     !/^[a-z]{20}$/.test(ref || "") ||
-    !["prepare", "dry-run", "apply"].includes(mode)
+    !["prepare", "stage", "dry-run", "apply"].includes(mode)
   )
     throw new Error("The protected import environment is not configured.");
   const call = async (path, method = "GET", body) => {
@@ -723,7 +999,7 @@ async function run() {
   if (mode === "prepare") {
     const key = createImportKey();
     await query(
-      `insert into public.maestro_settings(id,data) values('import-key',${sqlJson(key)}) on conflict(id) do update set data=excluded.data;`,
+      `delete from public.maestro_settings where id like 'import-stage:%' and data->>'expiresAt'<${sqlString(new Date().toISOString())}; insert into public.maestro_settings(id,data) values('import-key',${sqlJson(key)}) on conflict(id) do update set data=excluded.data;`,
     );
     console.log(
       "Ephemeral public import key prepared; private key remains in the protected workspace.",
@@ -738,6 +1014,18 @@ async function run() {
     rows[0]?.data,
     ref,
   );
+  if (mode === "stage") {
+    if (!payload.stage)
+      throw new Error("An encrypted quotation chunk is required.");
+    const result = await query(stageSql(payload, rows[0].data));
+    if (!result.some((r) => r.verified === true))
+      throw new Error("Quotation staging could not be verified.");
+    console.log(
+      "One encrypted quotation chunk staged in the protected workspace; no sponsor records or attachments changed.",
+    );
+    return;
+  }
+  if (payload.stage) throw new Error("Use staging mode for quotation chunks.");
   const payloadHash = hash(JSON.stringify(payload));
   const prior = await query(
     `select data from public.maestro_settings where id=${sqlString("import:" + payload.operationId)}`,
@@ -748,7 +1036,7 @@ async function run() {
         "This import operation conflicts with an existing operation.",
       );
     console.log(
-      "Verified completed operation; no duplicate records or logos created.",
+      "Verified completed operation; no duplicate records or files created.",
     );
     console.log(JSON.stringify(prior[0].data.summary));
     return;
@@ -757,21 +1045,12 @@ async function run() {
     query("select id,data from public.maestro_packages"),
     query("select id,data,package_id,revision from public.maestro_sponsors"),
     query(
-      "select id,sponsor_id,kind,path from public.maestro_attachments where kind='logo'",
+      "select id,sponsor_id,kind,name,mime,size,path from public.maestro_attachments where kind in ('logo','quotation')",
     ),
   ]);
-  const plan = planImport(payload, { packages, sponsors, attachments });
-  if (mode === "dry-run") {
-    console.log(
-      "Encrypted import checked; no business records or files were changed.",
-    );
-    console.log(JSON.stringify(plan.summary));
-    return;
-  }
-  const uploaded = [];
   let storage;
-  try {
-    if (plan.logos.length) {
+  const privateStorage = async () => {
+    if (!storage) {
       const keys = await call("/api-keys?reveal=true");
       const serviceKey = keys.find(
         (k) => k.name === "service_role" && k.api_key,
@@ -783,14 +1062,66 @@ async function run() {
       storage = createClient(`https://${ref}.supabase.co`, serviceKey, {
         auth: { persistSession: false, autoRefreshToken: false },
       }).storage.from("maestro-files");
-      for (const logo of plan.logos) {
-        const { error } = await storage.upload(logo.path, logo.bytes, {
-          contentType: logo.mime,
+    }
+    return storage;
+  };
+  let quotationFiles;
+  if (payload.sponsors.some((s) => s.quotations)) {
+    const staged = await query(
+      `select data from public.maestro_settings where id like ${sqlString("import-stage:" + payload.operationId + ":%")}`,
+    );
+    quotationFiles = assembleQuotationFiles(payload, staged, rows[0].data);
+    for (const sponsor of payload.sponsors.filter((s) => s.quotations)) {
+      const owner = matchOne(sponsors, sponsor.name);
+      if (!owner)
+        throw new Error("A quotation import requires an existing sponsor.");
+      for (const attachment of attachments.filter(
+        (a) =>
+          a.sponsor_id === owner.id &&
+          a.kind === "quotation" &&
+          a.mime === "application/pdf",
+      )) {
+        const { data, error } = await (
+          await privateStorage()
+        ).download(attachment.path);
+        if (error || !data)
+          throw new Error(
+            "An existing private quotation could not be checked.",
+          );
+        const bytes = Buffer.from(await data.arrayBuffer());
+        attachment.sha256 = hash(bytes);
+        quotationBytes(bytes, attachment);
+      }
+    }
+  }
+  const plan = planImport(payload, {
+    packages,
+    sponsors,
+    attachments,
+    quotationFiles,
+  });
+  if (mode === "dry-run") {
+    console.log(
+      "Encrypted import checked; no business records or files were changed.",
+    );
+    console.log(JSON.stringify(plan.summary));
+    return;
+  }
+  const uploaded = [];
+  try {
+    const files = [...plan.logos, ...plan.quotations];
+    if (files.length) {
+      await privateStorage();
+      for (const file of files) {
+        const { error } = await storage.upload(file.path, file.bytes, {
+          contentType: file.mime,
           upsert: false,
         });
         if (error)
-          throw new Error("The private logo storage operation failed.");
-        uploaded.push(logo.path);
+          throw new Error("The private file storage operation failed.");
+        uploaded.push(file.path);
+        if (file.kind === "quotation")
+          await verifyStoredQuotation(storage, file);
       }
     }
     const result = await query(transactionSql(plan, payload, payloadHash));

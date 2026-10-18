@@ -65,6 +65,7 @@ type Package = {
   referenceValue?: number;
 };
 const documentKinds = [
+  "quotation",
   "approval",
   "purchase-order",
   "booth-location",
@@ -72,12 +73,14 @@ const documentKinds = [
 ] as const;
 type DocumentKind = (typeof documentKinds)[number];
 const documentNames: Record<DocumentKind, string> = {
+  quotation: "quotation",
   approval: "approval",
   "purchase-order": "purchase order",
   "booth-location": "booth location",
   "booth-design": "booth design",
 };
 const documentHeadings: Record<DocumentKind, string> = {
+  quotation: "Quotation Attachments",
   approval: "Approval Attachments",
   "purchase-order": "Purchase Order Attachments",
   "booth-location": "Booth Location Attachments",
@@ -1393,13 +1396,9 @@ function CompleteRecord({
             )}
           </section>
         ))}
-        {(["approval", "purchase-order"] as const).map((kind) => (
+        {(["quotation", "approval", "purchase-order"] as const).map((kind) => (
           <section key={kind}>
-            <h3>
-              {kind === "approval"
-                ? "Approval Attachments"
-                : "Purchase Order Attachments"}
-            </h3>
+            <h3>{documentHeadings[kind]}</h3>
             {s.attachments.filter((a) => a.kind === kind).length ? (
               <ul>
                 {s.attachments
@@ -1678,6 +1677,7 @@ function SponsorPanel({
     [],
   );
   const documentInputs = useRef<Record<DocumentKind, HTMLInputElement | null>>({
+    quotation: null,
     approval: null,
     "purchase-order": null,
     "booth-location": null,
@@ -2935,7 +2935,7 @@ function SponsorPanel({
                 <div className="info-note">
                   <AlertCircle size={18} />
                   <span>
-                    Choose files in either section, then use{" "}
+                    Choose files in any section, then use{" "}
                     {draft.id ? "Save Changes" : "Create Sponsor"} to save them
                     with this sponsor.
                     {draft.id &&
@@ -2944,7 +2944,7 @@ function SponsorPanel({
                   </span>
                 </div>
               )}
-              {(["approval", "purchase-order"] as const).map(
+              {(["quotation", "approval", "purchase-order"] as const).map(
                 renderDocumentSection,
               )}
             </>
