@@ -339,6 +339,7 @@ const sponsorSchema = z.object({
     .max(1000),
   benefits: z.array(benefit).max(300),
   notes: z.string().max(3000),
+  notesAr: z.string().max(3000).optional(),
 });
 const cents = (n) => Math.round(n * 100);
 const received = (s) =>
@@ -758,6 +759,7 @@ app.get("/api/export/excel", async (req, res, next) => {
       "Consideration",
       "Booth Size",
       "Booth Location",
+      "Arabic Notes",
     ]);
     sheet.getRow(4).font = { bold: true, color: { argb: "FFFFFFFF" } };
     sheet.getRow(4).fill = {
@@ -784,10 +786,11 @@ app.get("/api/export/excel", async (req, res, next) => {
         s.consideration || "",
         s.boothSize || "",
         s.boothLocation || "",
+        s.notesAr || "",
       ]);
-    for (let i = 1; i <= 17; i++) sheet.getColumn(i).width = i === 1 ? 32 : 24;
+    for (let i = 1; i <= 18; i++) sheet.getColumn(i).width = i === 1 ? 32 : 24;
     for (const col of [11, 12, 13]) sheet.getColumn(col).numFmt = "#,##0.00";
-    sheet.autoFilter = "A4:Q" + Math.max(4, sponsors.length + 4);
+    sheet.autoFilter = "A4:R" + Math.max(4, sponsors.length + 4);
     const payments = book.addWorksheet("Payments");
     payments.addRow([
       "Sponsor Name",

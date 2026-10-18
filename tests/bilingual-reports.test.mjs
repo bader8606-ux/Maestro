@@ -20,6 +20,7 @@ const common = {
   poDate: "",
   updatedAt: "2026-10-06T00:00:00.000Z",
   notes: "",
+  notesAr: "ملاحظة عربية محفوظة",
   attachments: [],
 };
 const arabic = "المزايا الفضية بدون المعرض وبدون الوقت على المسرح";
@@ -63,6 +64,8 @@ test("Excel keeps Arabic benefits and undetermined values distinct from zero", a
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(Buffer.from(output.bytes));
   const summary = workbook.getWorksheet("Sponsors");
+  assert.equal(summary.getCell("S4").value, "Arabic Notes");
+  assert.equal(summary.getCell("S5").value, common.notesAr);
   assert.equal(summary.getCell("K5").value, 100);
   assert.equal(summary.getCell("M5").value, 75);
   assert.equal(summary.getCell("K6").value, "Not determined");

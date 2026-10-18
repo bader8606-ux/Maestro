@@ -77,6 +77,7 @@ const amendment = z
           .enum(["Not Approved", "In Progress", "Approved"])
           .optional(),
         notesAppend: text(3000),
+        notesArAppend: text(3000).optional(),
       })
       .strict()
       .refine(
@@ -427,6 +428,13 @@ export function planImport(payload, state) {
       data.value = s.update.value;
       if (s.update.contact !== undefined) data.contact = s.update.contact;
       if (s.update.approval !== undefined) data.approval = s.update.approval;
+      if (
+        s.update.notesArAppend &&
+        !(data.notesAr || "").includes(s.update.notesArAppend)
+      )
+        data.notesAr = [data.notesAr, s.update.notesArAppend]
+          .filter(Boolean)
+          .join("\n\n");
       if (!data.notes.includes(s.update.notesAppend))
         data.notes = [data.notes, s.update.notesAppend]
           .filter(Boolean)

@@ -119,6 +119,7 @@ type Sponsor = {
     completed: boolean;
   }[];
   notes: string;
+  notesAr?: string;
   updatedAt: string;
   revision: number;
   received: number;
@@ -184,6 +185,7 @@ const newSponsor = (): Sponsor => ({
   payments: [],
   benefits: [],
   notes: "",
+  notesAr: "",
   updatedAt: "",
   revision: 0,
   received: 0,
@@ -1380,6 +1382,14 @@ function CompleteRecord({
           </section>
         ))}
       </div>
+      {s.notesAr && (
+        <div className="record-notes">
+          <h3>Arabic Notes</h3>
+          <p dir="rtl" lang="ar">
+            {s.notesAr}
+          </p>
+        </div>
+      )}
       {s.notes && (
         <div className="record-notes">
           <h3>Notes</h3>
@@ -2299,6 +2309,18 @@ function SponsorPanel({
                   />
                 </Field>
               </div>
+              <Field label="Arabic Notes">
+                <textarea
+                  value={draft.notesAr || ""}
+                  dir="rtl"
+                  lang="ar"
+                  disabled={!editable}
+                  rows={4}
+                  maxLength={3000}
+                  onChange={(e) => set("notesAr", e.target.value)}
+                  placeholder="Optional notes in Arabic"
+                />
+              </Field>
               <Field label="Notes">
                 <textarea
                   value={draft.notes}

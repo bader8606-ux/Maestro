@@ -111,6 +111,15 @@ await test("English LTR dashboard works on desktop, tablet and mobile", async ()
     await dialog
       .getByLabel("Approval Status", { exact: true })
       .selectOption("Approved");
+    await dialog
+      .getByLabel("Arabic Notes", { exact: true })
+      .fill("ملاحظات الراعي للاختبار");
+    assert.equal(
+      await dialog
+        .getByLabel("Arabic Notes", { exact: true })
+        .getAttribute("dir"),
+      "rtl",
+    );
     await dialog.getByRole("tab", { name: "Contact Details" }).click();
     await dialog
       .getByLabel("Contact Person", { exact: true })
@@ -262,6 +271,10 @@ await test("English LTR dashboard works on desktop, tablet and mobile", async ()
       /ui-order\.pdf/,
     );
     await page.reload();
+    await page
+      .locator(".record-notes")
+      .filter({ hasText: "ملاحظات الراعي للاختبار" })
+      .waitFor();
     await page
       .getByRole("button", { name: /UI test sponsor UI test contact/ })
       .waitFor();

@@ -52,6 +52,7 @@ const columns = [
   "Consideration",
   "Booth Size",
   "Booth Location",
+  "Arabic Notes",
 ];
 const values = (s) => [
   s.name,
@@ -72,6 +73,7 @@ const values = (s) => [
   s.consideration || "",
   s.boothSize || "",
   s.boothLocation || "",
+  s.notesAr || "",
 ];
 const col = (i) => {
   let s = "";

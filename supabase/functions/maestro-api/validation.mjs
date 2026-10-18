@@ -64,6 +64,7 @@ export const sponsorSchema = z.object({
     .max(1000),
   benefits: z.array(benefit).max(300),
   notes: z.string().max(3000),
+  notesAr: z.string().max(3000).optional(),
 });
 
 export const packageSchema = z

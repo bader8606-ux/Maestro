@@ -728,6 +728,7 @@ test("Additive sponsor updates preserve commitments and independent PO/payment s
           update: {
             value: 2000,
             approval: "In Progress",
+            notesArAppend: "ملاحظة عربية للاختبار",
             benefitsAppend: [
               { title: "Additional fixture benefit", titleAr: "ميزة إضافية" },
             ],
@@ -748,12 +749,13 @@ test("Additive sponsor updates preserve commitments and independent PO/payment s
   assert.equal(plan.packages.length, 0);
   const result = plan.sponsors[0];
   assert.equal(result.data.approval, "In Progress");
+  assert.equal(result.data.notesAr, "ملاحظة عربية للاختبار");
   assert.equal(result.data.value, 2000);
   assert.equal(result.data.benefits.length, 2);
   assert.deepEqual(result.data.benefits[0], previous.data.benefits[0]);
   assert.equal(result.data.benefits[1].completed, false);
   for (const field of Object.keys(previous.data).filter(
-    (f) => !["approval", "value", "benefits", "notes"].includes(f),
+    (f) => !["approval", "value", "benefits", "notes", "notesAr"].includes(f),
   ))
     assert.deepEqual(result.data[field], previous.data[field]);
   assert.deepEqual(
