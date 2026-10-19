@@ -26,6 +26,10 @@ import {
   fitLogo,
 } from "../supabase/functions/maestro-api/brand.mjs";
 import { reports } from "../supabase/functions/maestro-api/reports.mjs";
+import {
+  detectAttachmentType,
+  DOCX_MIME,
+} from "../supabase/functions/maestro-api/document-files.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dataDir = path.resolve(process.env.DATA_DIR || "/workspace/maestro-data");
@@ -496,26 +500,8 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024, files: 10 },
 });
-function fileType(buffer) {
-  if (buffer.subarray(0, 5).toString() === "%PDF-") return "application/pdf";
-  if (
-    buffer.length >= 8 &&
-    buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
-  )
-    return "image/png";
-  if (buffer[0] === 255 && buffer[1] === 216 && buffer[2] === 255)
-    return "image/jpeg";
-  if (
-    buffer.subarray(0, 4).toString() === "RIFF" &&
-    buffer.subarray(8, 12).toString() === "WEBP"
-  )
-    return "image/webp";
-  const e = new Error("Upload only PNG, JPEG, WebP images or PDF documents.");
-  e.status = 400;
-  throw e;
-}
-function saveFile(file, imagesOnly = false) {
-  const mime = fileType(file.buffer);
+function saveFile(file, imagesOnly = false, kind = "") {
+  const mime = detectAttachmentType(file.buffer, kind);
   if (imagesOnly && !mime.startsWith("image/")) {
     const e = new Error("Logos must be PNG, JPEG or WebP images.");
     e.status = 400;
@@ -568,7 +554,7 @@ app.post(
       return res
         .status(400)
         .json({ error: "Use Replace to change an existing sponsor logo." });
-    const files = req.files.map((f) => saveFile(f, kind === "logo"));
+    const files = req.files.map((f) => saveFile(f, kind === "logo", kind));
     db.exec("BEGIN");
     try {
       for (let i = 0; i < files.length; i++) {
@@ -603,7 +589,8 @@ app.get("/api/attachments/:id", (req, res) => {
     .get(req.params.id);
   if (!a) return res.status(404).json({ error: "Attachment not found." });
   res.type(a.mime);
-  if (req.query.download === "1") res.attachment(a.name);
+  if (req.query.download === "1" || a.mime === DOCX_MIME)
+    res.attachment(a.name);
   else
     res.set(
       "Content-Disposition",
@@ -622,7 +609,7 @@ app.post(
     if (!old) return res.status(404).json({ error: "Attachment not found." });
     if (!req.file)
       return res.status(400).json({ error: "Select a replacement file." });
-    const m = saveFile(req.file, old.kind === "logo");
+    const m = saveFile(req.file, old.kind === "logo", old.kind);
     writeFile(m, req.file);
     db.prepare(
       "UPDATE attachments SET name=?,mime=?,size=?,file=?,created_at=? WHERE id=?",

@@ -6,8 +6,12 @@ import { readFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { randomUUID, randomBytes } from "node:crypto";
 import { test } from "node:test";
+import { zipSync, strToU8 } from "fflate";
+import { DOCX_MIME } from "../supabase/functions/maestro-api/document-files.mjs";
 import {
   assembleQuotationFiles,
+  assembleContractFiles,
+  buildContractStages,
   buildQuotationStages,
   createImportKey,
   stageSql,
@@ -399,6 +403,109 @@ test("Actual quotation staging verifies ownership, imports without changing spon
   assert.throws(
     () =>
       query("set role authenticated; select * from public.maestro_attachments"),
+    /permission denied/,
+  );
+});
+
+test("Actual DOCX contract staging preserves records, quotations and package associations with private metadata", async () => {
+  for (const name of [
+    "20261019000100_contract_attachments.sql",
+    "20261019000200_contract_docx.sql",
+  ])
+    query(
+      await readFile(
+        new URL("../supabase/migrations/" + name, import.meta.url),
+        "utf8",
+      ),
+    );
+  assert.equal(
+    query(
+      `select ${quote(DOCX_MIME)}=any(allowed_mime_types) from storage.buckets where id='maestro-files'`,
+    ),
+    "t",
+  );
+  const before = state(),
+    sponsor = before.sponsors.find(
+      (row) => row.data.name === "FIXTURE PRESERVATION COMPANY",
+    );
+  const key = createImportKey();
+  query(
+    `insert into maestro_settings(id,data) values('import-key',${value(key)}) on conflict(id) do update set data=excluded.data`,
+  );
+  const operationId = randomUUID();
+  const bytes = Buffer.from(
+    zipSync({
+      "[Content_Types].xml": strToU8(
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>',
+      ),
+      "_rels/.rels": strToU8(
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>',
+      ),
+      "word/document.xml": strToU8(
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Fixture contract</w:t></w:r></w:p></w:body></w:document>',
+      ),
+    }),
+  );
+  const file = buildContractStages({
+    projectRef,
+    operationId,
+    sponsorName: sponsor.data.name,
+    fileName: "عقد تجريبي.docx",
+    bytes,
+  });
+  for (const part of file.stages) assert.equal(query(stageSql(part, key)), "t");
+  const staged = json(
+    `select coalesce(json_agg(p),'[]') from(select data from maestro_settings where id like ${quote("import-stage:" + operationId + ":%")})p`,
+  );
+  const payload = validatePayload(
+    {
+      version: 1,
+      projectRef,
+      operationId,
+      sponsors: [{ name: sponsor.data.name, contracts: [file.contract] }],
+    },
+    projectRef,
+  );
+  const contractFiles = assembleContractFiles(payload, staged, key);
+  assert.deepEqual(contractFiles.get(file.contract.fileId), bytes);
+  const plan = planImport(payload, { ...before, contractFiles });
+  assert.deepEqual(plan.sponsors[0].data, sponsor.data);
+  assert.equal(plan.contracts.length, 1);
+  const sql = transactionSql(plan, payload, "a2".repeat(32));
+  const summary = json(sql);
+  assert.equal(summary.verified, true);
+  assert.equal(summary.contractsAdded, 1);
+  assert.deepEqual(json(sql), summary);
+  const after = state(),
+    saved = after.sponsors.find((row) => row.id === sponsor.id);
+  assert.deepEqual(saved.data, sponsor.data);
+  assert.equal(saved.package_id, sponsor.package_id);
+  assert.equal(saved.revision, sponsor.revision + 1);
+  assert.deepEqual(
+    after.attachments.filter((a) => a.kind === "quotation"),
+    before.attachments.filter((a) => a.kind === "quotation"),
+  );
+  assert.equal(
+    after.attachments.filter(
+      (a) => a.sponsor_id === sponsor.id && a.kind === "contract",
+    ).length,
+    1,
+  );
+  const metadata = json(
+    `select row_to_json(a) from maestro_attachments a where id=${quote(plan.contracts[0].id)}`,
+  );
+  assert.equal(metadata.kind, "contract");
+  assert.equal(metadata.mime, DOCX_MIME);
+  assert.equal(metadata.name, "عقد تجريبي.docx");
+  assert.equal(metadata.sponsor_id, sponsor.id);
+  assert.equal(
+    query(
+      `select count(*) from maestro_settings where id like ${quote("import-stage:" + operationId + ":%")}`,
+    ),
+    "0",
+  );
+  assert.throws(
+    () => query("set role anon; select * from public.maestro_attachments"),
     /permission denied/,
   );
 });

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { randomUUID, randomBytes, createHash } from "node:crypto";
+import { zipSync, strToU8 } from "fflate";
+import { DOCX_MIME } from "../supabase/functions/maestro-api/document-files.mjs";
 import {
   createImportKey,
   decryptEnvelope,
@@ -16,6 +18,10 @@ import {
   stageSql,
   quotationBytes,
   verifyStoredQuotation,
+  buildContractStages,
+  assembleContractFiles,
+  contractBytes,
+  verifyStoredContract,
 } from "../scripts/workspace-import.mjs";
 import { publicImportKey } from "../supabase/functions/maestro-api/import-key.mjs";
 import { createHandler } from "../supabase/functions/maestro-api/handler.mjs";
@@ -335,6 +341,322 @@ test("Private quotation readback checks exact original bytes before attachment c
     verifyStoredQuotation(
       { download: async () => ({ error: new Error("not printed") }) },
       quotation,
+    ),
+    /could not be verified/,
+  );
+});
+
+const docxFixtureBytes = () =>
+  Buffer.from(
+    zipSync(
+      {
+        "[Content_Types].xml": strToU8(
+          '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>',
+        ),
+        "_rels/.rels": strToU8(
+          '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>',
+        ),
+        "word/document.xml": strToU8(
+          '<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Disposable contract fixture</w:t></w:r></w:p></w:body></w:document>',
+        ),
+        "word/media/disposable.bin": randomBytes(100000),
+      },
+      { level: 6 },
+    ),
+  );
+const contractFixture = (
+  bytes = docxFixtureBytes(),
+  fileName = "اتفاقية رعاية تجريبية - 2026.docx",
+) => {
+  const operationId = randomUUID(),
+    name = "Encrypted fixture company";
+  const built = buildContractStages({
+    projectRef,
+    operationId,
+    sponsorName: name,
+    fileName,
+    bytes,
+  });
+  const payload = validatePayload(
+    {
+      version: 1,
+      projectRef,
+      operationId,
+      sponsors: [{ name, contracts: [built.contract] }],
+    },
+    projectRef,
+  );
+  const rows = built.stages.map((s) => ({
+    data: { ...s, keyId: key.keyId, expiresAt: key.expiresAt },
+  }));
+  return { ...built, bytes, payload, rows };
+};
+
+test("Original DOCX contracts retain Arabic filenames, exact bytes and explicit destination across bounded authenticated stages", () => {
+  const { contract, stages, bytes, payload, rows } = contractFixture();
+  assert.equal(contract.mime, DOCX_MIME);
+  assert.equal(contract.name, "اتفاقية رعاية تجريبية - 2026.docx");
+  assert.ok(stages.length > 1);
+  for (const stage of stages) {
+    assert.equal(stage.stage.kind, "contract");
+    const envelope = encryptEnvelope(stage, key);
+    assert.ok(envelope.length < 60000);
+    assert.equal(envelope.includes(contract.name), false);
+    assert.deepEqual(decryptEnvelope(envelope, key, projectRef), stage);
+  }
+  assert.ok(
+    assembleContractFiles(payload, [...rows].reverse(), key)
+      .get(contract.fileId)
+      .equals(bytes),
+  );
+  assert.deepEqual(
+    decryptEnvelope(encryptEnvelope(payload, key), key, projectRef),
+    payload,
+  );
+  const pdf = contractFixture(
+    quotationFixture(1000).bytes,
+    "Original contract.pdf",
+  );
+  assert.equal(pdf.contract.mime, "application/pdf");
+  assert.ok(
+    assembleContractFiles(pdf.payload, pdf.rows, key)
+      .get(pdf.contract.fileId)
+      .equals(pdf.bytes),
+  );
+});
+
+test("Contract validation rejects ZIP spoofing, unsafe names, type mismatch, missing and corrupt stages, expiry and cross-owner metadata", () => {
+  const { contract, payload, rows, bytes } = contractFixture();
+  const spoof = Buffer.from(
+    zipSync({ "word/document.xml": strToU8("not a genuine OOXML package") }),
+  );
+  assert.throws(() =>
+    buildContractStages({
+      projectRef,
+      operationId: randomUUID(),
+      sponsorName: "Fixture",
+      fileName: "spoof.docx",
+      bytes: spoof,
+    }),
+  );
+  assert.throws(
+    () => contractBytes(bytes, { ...contract, mime: "application/pdf" }),
+    /signature/,
+  );
+  assert.throws(
+    () => contractBytes(Buffer.from("PK fake"), { ...contract, size: 7 }),
+    /checksum/,
+  );
+  for (const change of [
+    { name: "../contract.docx" },
+    { name: "bad\n.docx" },
+    { name: "contract.docm" },
+    { name: "contract.pdf" },
+    { mime: "application/zip" },
+    { kind: "approval" },
+    { size: 10 * 1024 * 1024 + 1 },
+  ]) {
+    const altered = structuredClone(payload);
+    Object.assign(altered.sponsors[0].contracts[0], change);
+    assert.throws(() => validatePayload(altered, projectRef));
+  }
+  assert.throws(
+    () => assembleContractFiles(payload, rows.slice(1), key),
+    /incomplete/,
+  );
+  assert.throws(
+    () => assembleContractFiles(payload, [...rows.slice(1), rows[1]], key),
+    /ownership/,
+  );
+  for (const mutate of [
+    (r) => {
+      r.data.keyId = randomUUID();
+    },
+    (r) => {
+      r.data.expiresAt = new Date(0).toISOString();
+    },
+    (r) => {
+      r.data.stage.sponsorName = "Another sponsor";
+    },
+    (r) => {
+      r.data.stage.name = "Another file.docx";
+    },
+    (r) => {
+      r.data.projectRef = "zyxwvutsrqponmlkjihgf";
+    },
+    (r) => {
+      r.data.operationId = randomUUID();
+    },
+    (r) => {
+      const b = Buffer.from(r.data.stage.base64, "base64");
+      b[100] ^= 1;
+      r.data.stage.base64 = b.toString("base64");
+    },
+  ]) {
+    const changed = structuredClone(rows);
+    mutate(changed[0]);
+    assert.throws(() => assembleContractFiles(payload, changed, key));
+  }
+});
+
+test("Authenticated staging binds quotation and contract destinations even when a PDF descriptor is otherwise identical", () => {
+  const quoted = quotationFixture(1000);
+  const relabeledContract = validatePayload(
+    {
+      ...quoted.payload,
+      sponsors: [
+        {
+          name: quoted.payload.sponsors[0].name,
+          contracts: quoted.payload.sponsors[0].quotations,
+        },
+      ],
+    },
+    projectRef,
+  );
+  assert.throws(
+    () => assembleContractFiles(relabeledContract, quoted.rows, key),
+    /kind/,
+  );
+  const signed = contractFixture(quoted.bytes, "Original contract.pdf");
+  const relabeledQuotation = validatePayload(
+    {
+      ...signed.payload,
+      sponsors: [
+        {
+          name: signed.payload.sponsors[0].name,
+          quotations: signed.payload.sponsors[0].contracts,
+        },
+      ],
+    },
+    projectRef,
+  );
+  assert.throws(
+    () => assembleQuotationFiles(relabeledQuotation, signed.rows, key),
+    /kind/,
+  );
+  const missingKind = structuredClone(contractFixture().rows[0].data);
+  delete missingKind.keyId;
+  delete missingKind.expiresAt;
+  delete missingKind.stage.kind;
+  assert.throws(() => validateStagePayload(missingKind, projectRef));
+  const duplicate = structuredClone(signed.payload);
+  duplicate.sponsors.push({
+    name: "Another sponsor",
+    quotations: [signed.contract],
+  });
+  assert.throws(() => validatePayload(duplicate, projectRef), /duplicate/);
+  const sql = stageSql(signed.stages[0], key);
+  assert.match(sql, /\"kind\":\"contract\"/);
+  assert.match(sql, /stage conflict/);
+  assert.equal(sql.includes("maestro_sponsors"), false);
+});
+
+test("Contract-only planning preserves sponsor fields, separates owners and kinds, deduplicates content and atomically cleans stages", () => {
+  const { payload, rows, contract, bytes } = contractFixture();
+  const seed = planImport(fixture(), emptyState());
+  const previous = { ...seed.sponsors[0], revision: 8 };
+  previous.data.approval = "Approved";
+  previous.data.poIssued = true;
+  previous.data.notesAr = "ملاحظات لا تتغير";
+  previous.data.payments = [
+    { id: randomUUID(), amount: 50, date: "2026-10-01", note: "Receipt" },
+  ];
+  const originalFields = structuredClone(previous.data);
+  const otherOwner = {
+    id: randomUUID(),
+    sponsor_id: randomUUID(),
+    kind: "contract",
+    path: "other-owner",
+    sha256: contract.sha256,
+  };
+  const otherKind = {
+    id: randomUUID(),
+    sponsor_id: previous.id,
+    kind: "quotation",
+    path: "other-kind",
+    sha256: contract.sha256,
+  };
+  const state = {
+    packages: seed.packages,
+    sponsors: [previous],
+    attachments: [otherOwner, otherKind],
+    contractFiles: assembleContractFiles(payload, rows, key),
+  };
+  const plan = planImport(payload, state);
+  assert.deepEqual(plan.sponsors[0].data, originalFields);
+  assert.equal(plan.sponsors[0].changed, false);
+  assert.equal(plan.sponsors[0].package_id, previous.package_id);
+  assert.equal(plan.packages.length, 0);
+  assert.equal(plan.quotations.length, 0);
+  assert.equal(plan.logos.length, 0);
+  assert.equal(plan.contracts.length, 1);
+  assert.equal(plan.summary.contractsAdded, 1);
+  assert.equal(plan.contracts[0].sponsor_id, previous.id);
+  assert.equal(plan.contracts[0].kind, "contract");
+  assert.equal(plan.contracts[0].name, contract.name);
+  assert.ok(plan.contracts[0].bytes.equals(bytes));
+  const existing = { ...plan.contracts[0] };
+  delete existing.bytes;
+  const repeat = planImport(payload, {
+    ...state,
+    attachments: [...state.attachments, existing],
+  });
+  assert.equal(repeat.contracts.length, 0);
+  assert.equal(repeat.summary.contractsPreserved, 1);
+  assert.throws(
+    () => planImport(payload, { ...state, sponsors: [] }),
+    /existing sponsor/,
+  );
+  assert.throws(
+    () => planImport(payload, { ...state, contractFiles: new Map() }),
+    /checksum/,
+  );
+  assert.throws(
+    () =>
+      planImport(payload, {
+        ...state,
+        attachments: [existing, { ...existing, id: randomUUID() }],
+      }),
+    /duplicated/,
+  );
+  const sql = transactionSql(plan, payload, "f".repeat(64));
+  assert.match(sql, /kind='contract'/);
+  assert.match(sql, /Contract import conflict/);
+  assert.match(sql, /revision=8/);
+  assert.match(sql, /Import verification failed/);
+  assert.match(
+    sql,
+    /delete from public\.maestro_settings where id like 'import-stage:/,
+  );
+  assert.match(sql, /Import operation conflict/);
+});
+
+test("Private contract upload readback verifies the original DOCX bytes and checksum before commit", async () => {
+  const { bytes, contract } = contractFixture();
+  const good = {
+    download: async () => ({ data: new Blob([bytes]), error: null }),
+  };
+  assert.ok(
+    (
+      await verifyStoredContract(good, {
+        ...contract,
+        path: "private-contract",
+      })
+    ).equals(bytes),
+  );
+  const corrupted = Buffer.from(bytes);
+  corrupted[50] ^= 1;
+  await assert.rejects(
+    verifyStoredContract(
+      { download: async () => ({ data: new Blob([corrupted]) }) },
+      contract,
+    ),
+    /checksum/,
+  );
+  await assert.rejects(
+    verifyStoredContract(
+      { download: async () => ({ error: new Error("not printed") }) },
+      contract,
     ),
     /could not be verified/,
   );

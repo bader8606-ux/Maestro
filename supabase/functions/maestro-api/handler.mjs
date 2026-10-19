@@ -8,6 +8,7 @@ import {
 import { reports } from "./reports.mjs";
 import { resolveBrand, officialLogoUrl } from "./brand.mjs";
 import { publicImportKey } from "./import-key.mjs";
+import { detectAttachmentType } from "./document-files.mjs";
 const bucket = "maestro-files";
 /** @returns {never} */
 const fail = (message, status = 400) => {
@@ -28,23 +29,7 @@ const checked = async (query) => {
 };
 const table = (db, name) => db.from("maestro_" + name);
 export function fileType(bytes) {
-  if (
-    bytes[0] === 0x89 &&
-    bytes[1] === 0x50 &&
-    bytes[2] === 0x4e &&
-    bytes[3] === 0x47 &&
-    bytes[4] === 13 &&
-    bytes[5] === 10 &&
-    bytes[6] === 26 &&
-    bytes[7] === 10
-  )
-    return "image/png";
-  if (bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255)
-    return "image/jpeg";
-  const s = new TextDecoder().decode(bytes);
-  if (s.startsWith("RIFF") && s.slice(8, 12) === "WEBP") return "image/webp";
-  if (s.startsWith("%PDF-")) return "application/pdf";
-  fail("Upload a PNG, JPEG, WebP image or PDF document.");
+  return detectAttachmentType(bytes);
 }
 /** @param {any} db @param {{origins?: string[]}} options @returns {(req: Request) => Promise<Response>} */
 export function createHandler(db, { origins = [] } = {}) {
@@ -135,11 +120,12 @@ export function createHandler(db, { origins = [] } = {}) {
     });
   };
   const one = async (id) => (await sponsors(id))[0];
-  const upload = async (file, images = false) => {
+  const upload = async (file, images = false, kind = "") => {
     if (!(file instanceof Blob) || !file.size || file.size > 10 * 1024 * 1024)
       fail("Each file must be between 1 byte and 10 MB.");
-    const mime = fileType(
-      new Uint8Array(await file.slice(0, 16).arrayBuffer()),
+    const mime = detectAttachmentType(
+      new Uint8Array(await file.arrayBuffer()),
+      kind,
     );
     if (images && mime === "application/pdf") fail("A logo must be an image.");
     const path = crypto.randomUUID();
@@ -327,7 +313,7 @@ export function createHandler(db, { origins = [] } = {}) {
           const created = [];
           try {
             for (const file of files)
-              created.push(await upload(file, kind === "logo"));
+              created.push(await upload(file, kind === "logo", kind));
             await checked(
               table(db, "attachments").insert(
                 created.map((f) => ({ ...f, kind, sponsor_id: id })),
@@ -350,7 +336,7 @@ export function createHandler(db, { origins = [] } = {}) {
         if (!a) fail("Attachment not found.", 404);
         if (action === "replace" && method === "POST") {
           const form = await req.formData(),
-            file = await upload(form.get("file"), a.kind === "logo");
+            file = await upload(form.get("file"), a.kind === "logo", a.kind);
           try {
             await checked(
               table(db, "attachments")

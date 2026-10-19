@@ -1474,6 +1474,31 @@ input[type="date"] {
   height: 100%;
   border: 0;
 }
+.word-document-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 260px;
+  max-width: 520px;
+  margin: 40px auto;
+  gap: 16px;
+  padding: 24px;
+}
+.word-document-preview h3,
+.word-document-preview p {
+  margin: 0;
+}
+.word-document-preview p {
+  color: var(--muted);
+  line-height: 1.6;
+}
+.word-document-preview a {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+}
 .preview-caption {
   font-size: 10px;
   color: var(--muted);

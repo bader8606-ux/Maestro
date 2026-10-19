@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: Prepare a key, stage encrypted quotation chunks, check records, or apply them
+        description: Prepare a key, stage encrypted document chunks, check records, or apply them
         type: choice
         required: true
         options: [prepare, stage, dry-run, apply]
@@ -14,7 +14,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: ${{ inputs.mode == 'stage' && format('maestro-quotation-stage-{0}', github.run_id) || 'maestro-workspace-import' }}
+  group: ${{ inputs.mode == 'stage' && format('maestro-document-stage-{0}', github.run_id) || 'maestro-workspace-import' }}
   cancel-in-progress: false
 jobs:
   import:

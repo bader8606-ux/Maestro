@@ -73,6 +73,12 @@ const documentKinds = [
   "booth-design",
 ] as const;
 type DocumentKind = (typeof documentKinds)[number];
+const docxMime =
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+const documentAccept = (kind: DocumentKind | "logo") =>
+  "image/png,image/jpeg,image/webp" +
+  (kind === "logo" ? "" : ",application/pdf") +
+  (kind === "contract" ? "," + docxMime + ",.docx" : "");
 const documentNames: Record<DocumentKind, string> = {
   quotation: "quotation",
   contract: "contract",
@@ -1600,13 +1606,15 @@ function PendingAttachmentCard({
   const { file } = document;
   const mime =
     file.type ||
-    (/\.pdf$/i.test(file.name)
-      ? "application/pdf"
-      : /\.png$/i.test(file.name)
-        ? "image/png"
-        : /\.webp$/i.test(file.name)
-          ? "image/webp"
-          : "image/jpeg");
+    (/\.docx$/i.test(file.name)
+      ? docxMime
+      : /\.pdf$/i.test(file.name)
+        ? "application/pdf"
+        : /\.png$/i.test(file.name)
+          ? "image/png"
+          : /\.webp$/i.test(file.name)
+            ? "image/webp"
+            : "image/jpeg");
   const attachment: Attachment = {
     id: document.id,
     sponsorId,
@@ -1947,8 +1955,15 @@ function SponsorPanel({
         ["image/png", "image/jpeg", "image/webp", "application/pdf"].includes(
           file.type,
         ) ||
-        (!file.type && /\.(png|jpe?g|webp|pdf)$/i.test(file.name));
-      if (!supported) message = "Choose PNG, JPEG, WebP or PDF attachments.";
+        (!file.type && /\.(png|jpe?g|webp|pdf)$/i.test(file.name)) ||
+        (kind === "contract" &&
+          (file.type === docxMime ||
+            (!file.type && /\.docx$/i.test(file.name))));
+      if (!supported)
+        message =
+          kind === "contract"
+            ? "Choose PNG, JPEG, WebP, PDF or DOCX contract attachments."
+            : "Choose PNG, JPEG, WebP or PDF attachments.";
       else if (!file.size)
         message = "Choose attachment files that are not empty.";
       else if (file.size > 10 * 1024 * 1024)
@@ -2068,7 +2083,7 @@ function SponsorPanel({
               aria-label={"Replacement file for " + a.name}
               tabIndex={-1}
               type="file"
-              accept="image/png,image/jpeg,image/webp,application/pdf"
+              accept={documentAccept(a.kind)}
               disabled={busy || unsaved}
               onChange={(e) => {
                 replace(e.target.files?.[0], a);
@@ -2128,7 +2143,11 @@ function SponsorPanel({
           >
             <Upload size={22} />
             <strong>Choose files to upload</strong>
-            <span>Images or PDF documents</span>
+            <span>
+              {kind === "contract"
+                ? "Images, PDF or DOCX documents"
+                : "Images or PDF documents"}
+            </span>
           </button>
           <input
             ref={(input) => {
@@ -2138,7 +2157,7 @@ function SponsorPanel({
             tabIndex={-1}
             aria-label={"Upload " + documentNames[kind] + " attachments"}
             type="file"
-            accept="image/png,image/jpeg,image/webp,application/pdf"
+            accept={documentAccept(kind)}
             multiple
             disabled={busy}
             onChange={(e) => {
@@ -2934,7 +2953,7 @@ function SponsorPanel({
                 <h3>Documents & Attachments</h3>
                 <p>
                   PNG, JPEG, WebP and PDF · 10 MB per file · Up to 10 files per
-                  upload
+                  upload · DOCX is also supported for contracts
                 </p>
               </div>
               {editable && (
@@ -3094,6 +3113,26 @@ function Preview({
             alt={attachment.name}
             style={{ width: zoom * 100 + "%", maxWidth: "none" }}
           />
+        ) : attachment.mime === docxMime ? (
+          <div className="word-document-preview">
+            <FileText size={48} />
+            <h3>Word contract</h3>
+            <p>
+              Download the original DOCX file to open it in Microsoft Word or a
+              compatible document viewer.
+            </p>
+            <a
+              className="primary"
+              href={attachmentUrl(attachment, true)}
+              download={
+                attachment.url?.startsWith("blob:")
+                  ? attachment.name
+                  : undefined
+              }
+            >
+              <Download size={18} /> Download original DOCX
+            </a>
+          </div>
         ) : (
           <iframe src={attachmentUrl(attachment)} title={attachment.name} />
         )}

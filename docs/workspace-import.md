@@ -19,8 +19,8 @@ deployment; it does not create or upgrade any hosting resource.
    counts, then dispatch `apply` for already authorized changes. Never enter
    plaintext business records or credentials in workflow inputs. Embedded logo
    bytes must be verified originals, not generated artwork. Separate small logo
-   imports must still fit the full envelope limit. Original PDF quotations use
-   the protected chunk staging procedure below when they exceed that limit.
+   imports must still fit the full envelope limit. Original PDF quotations and
+   PDF/DOCX contracts use protected chunk staging below when they exceed that limit.
 
 ## Original PDF quotations
 
@@ -82,6 +82,60 @@ the same committed operation cannot create duplicate attachments. Logs contain
 only generic success messages and aggregate counts, never filenames, original
 bytes, chunks, decrypted records, SQL or credentials. Remove owner-only local
 plaintext and ciphertext temporary files after the verified import.
+
+## Original PDF and DOCX contracts
+
+Contract imports use the same protected staging procedure and require an existing,
+unambiguous sponsor. They add only private `contract` attachments. They do not
+change sponsorship values, package definitions, benefits, contacts, notes,
+approval/PO statuses, approval dates or payments. Uploading a file does not assert
+that it has been signed, legally approved, or paid.
+
+```js
+const { contract, stages } = buildContractStages({
+  projectRef,
+  operationId,
+  sponsorName,
+  fileName, // exact original .pdf or .docx filename
+  bytes, // original bytes; no conversion or regeneration
+});
+// Encrypt/stage every item, then dry-run and apply this final manifest:
+const payload = {
+  version: 1,
+  projectRef,
+  operationId,
+  sponsors: [{ name: sponsorName, contracts: [contract] }],
+};
+```
+
+The helper infers the MIME type from the extension unless an explicit matching
+`mime` is supplied. Contract descriptors have the same six fields as quotation
+descriptors; DOCX uses
+`application/vnd.openxmlformats-officedocument.wordprocessingml.document`.
+One final batch allows at most ten quotation/contract files in total, each up to
+10 MB. Each contract stage explicitly includes `kind: "contract"` inside its
+authenticated contents. Legacy quotation stages without `kind` remain quotations.
+Neither kind may be relabeled by changing the final manifest: assembly checks
+kind, sponsor, project, operation, key, expiry and every descriptor field. Reusing
+a file ID across owners or attachment kinds is rejected.
+
+The shared `document-files.mjs` validator checks genuine, bounded DOCX packages,
+including ZIP directory consistency, extraction bounds, CRCs, OOXML content types,
+root document relationships and the Word document. A generic ZIP, corrupted ZIP,
+macro document or filename/MIME spoof does not qualify as a contract DOCX.
+`contractBytes`, `assembleContractFiles` and `verifyStoredContract` additionally
+verify the exact supplied length and SHA-256. Original bytes and filenames are
+retained; DOCX files are downloaded rather than rendered as browser HTML.
+
+Content deduplication is scoped to the exact sponsor and `contract` kind. A
+matching quotation or another sponsor's file cannot suppress a contract upload.
+Existing contract files remain unchanged. Each uploaded contract is downloaded and
+verified again before its metadata is committed. Transactions guard the existing
+contract metadata snapshot, full sponsor data, revision and package association,
+then verify saved attachment ownership and metadata and atomically remove the
+operation's staged chunks. A completed operation's private replay marker prevents
+additional metadata or uploads on retry. As with quotations, no original bytes,
+filenames, records or secret credentials are printed in workflow logs.
 
 The runner matches sponsor and package names case-insensitively, rejects ambiguous
 matches, and preserves contacts, payments, independent approval/PO statuses,
