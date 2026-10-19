@@ -30,6 +30,7 @@ const fields = {
 };
 const sections = [
   ["quotation", "Quotation Attachments", "quotation.png"],
+  ["contract", "Contract Attachments", "contract.png"],
   ["approval", "Approval Attachments", "approval.png"],
   ["purchase-order", "Purchase Order Attachments", "order.png"],
   ["logo", "Sponsor Logo", "logo.png"],
@@ -190,6 +191,12 @@ test("Authenticated local exports include saved booth details and attachment met
       upload.append("files", new Blob([png], { type: "image/png" }), name);
       await json(`/sponsors/${sponsor.id}/attachments`, "POST", upload);
     }
+    const withAttachments = await json(`/sponsors/${sponsor.id}`);
+    assert.equal(withAttachments.approval, "Not Approved");
+    assert.equal(withAttachments.poIssued, false);
+    assert.deepEqual(withAttachments.payments, []);
+    assert.equal(withAttachments.received, 0);
+    assert.equal(withAttachments.outstanding, 100);
     const excel = await request("/export/excel");
     assert.equal(excel.status, 200);
     const book = await workbook(await excel.arrayBuffer());

@@ -546,6 +546,7 @@ app.post(
     const kind = z
       .enum([
         "quotation",
+        "contract",
         "approval",
         "purchase-order",
         "logo",
@@ -828,15 +829,17 @@ app.get("/api/export/excel", async (req, res, next) => {
           s.name,
           a.kind === "quotation"
             ? "Quotation Attachments"
-            : a.kind === "purchase-order"
-              ? "Purchase Order Attachments"
-              : a.kind === "approval"
-                ? "Approval Attachments"
-                : a.kind === "booth-location"
-                  ? "Booth Location Attachments"
-                  : a.kind === "booth-design"
-                    ? "Booth Design Attachments"
-                    : "Sponsor Logo",
+            : a.kind === "contract"
+              ? "Contract Attachments"
+              : a.kind === "purchase-order"
+                ? "Purchase Order Attachments"
+                : a.kind === "approval"
+                  ? "Approval Attachments"
+                  : a.kind === "booth-location"
+                    ? "Booth Location Attachments"
+                    : a.kind === "booth-design"
+                      ? "Booth Design Attachments"
+                      : "Sponsor Logo",
           a.name,
           a.createdAt,
         ]);

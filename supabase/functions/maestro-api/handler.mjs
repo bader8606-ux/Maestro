@@ -309,6 +309,7 @@ export function createHandler(db, { origins = [] } = {}) {
             kind = z
               .enum([
                 "quotation",
+                "contract",
                 "approval",
                 "purchase-order",
                 "logo",

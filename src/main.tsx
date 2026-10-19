@@ -66,6 +66,7 @@ type Package = {
 };
 const documentKinds = [
   "quotation",
+  "contract",
   "approval",
   "purchase-order",
   "booth-location",
@@ -74,6 +75,7 @@ const documentKinds = [
 type DocumentKind = (typeof documentKinds)[number];
 const documentNames: Record<DocumentKind, string> = {
   quotation: "quotation",
+  contract: "contract",
   approval: "approval",
   "purchase-order": "purchase order",
   "booth-location": "booth location",
@@ -81,6 +83,7 @@ const documentNames: Record<DocumentKind, string> = {
 };
 const documentHeadings: Record<DocumentKind, string> = {
   quotation: "Quotation Attachments",
+  contract: "Contract Attachments",
   approval: "Approval Attachments",
   "purchase-order": "Purchase Order Attachments",
   "booth-location": "Booth Location Attachments",
@@ -1396,38 +1399,40 @@ function CompleteRecord({
             )}
           </section>
         ))}
-        {(["quotation", "approval", "purchase-order"] as const).map((kind) => (
-          <section key={kind}>
-            <h3>{documentHeadings[kind]}</h3>
-            {s.attachments.filter((a) => a.kind === kind).length ? (
-              <ul>
-                {s.attachments
-                  .filter((a) => a.kind === kind)
-                  .map((a) => (
-                    <li key={a.id}>
-                      <button
-                        className="text-button"
-                        onClick={() => setPreview(a)}
-                      >
-                        <Eye size={15} />
-                        {a.name}
-                      </button>
-                      <a
-                        href={attachmentUrl(a, true)}
-                        target="_blank"
-                        rel="noreferrer"
-                        aria-label={"Download " + a.name}
-                      >
-                        <Download size={15} />
-                      </a>
-                    </li>
-                  ))}
-              </ul>
-            ) : (
-              <p>No attachments uploaded.</p>
-            )}
-          </section>
-        ))}
+        {(["quotation", "contract", "approval", "purchase-order"] as const).map(
+          (kind) => (
+            <section key={kind}>
+              <h3>{documentHeadings[kind]}</h3>
+              {s.attachments.filter((a) => a.kind === kind).length ? (
+                <ul>
+                  {s.attachments
+                    .filter((a) => a.kind === kind)
+                    .map((a) => (
+                      <li key={a.id}>
+                        <button
+                          className="text-button"
+                          onClick={() => setPreview(a)}
+                        >
+                          <Eye size={15} />
+                          {a.name}
+                        </button>
+                        <a
+                          href={attachmentUrl(a, true)}
+                          target="_blank"
+                          rel="noreferrer"
+                          aria-label={"Download " + a.name}
+                        >
+                          <Download size={15} />
+                        </a>
+                      </li>
+                    ))}
+                </ul>
+              ) : (
+                <p>No attachments uploaded.</p>
+              )}
+            </section>
+          ),
+        )}
       </div>
       {s.notesAr && (
         <div className="record-notes">
@@ -1678,6 +1683,7 @@ function SponsorPanel({
   );
   const documentInputs = useRef<Record<DocumentKind, HTMLInputElement | null>>({
     quotation: null,
+    contract: null,
     approval: null,
     "purchase-order": null,
     "booth-location": null,
@@ -2944,9 +2950,9 @@ function SponsorPanel({
                   </span>
                 </div>
               )}
-              {(["quotation", "approval", "purchase-order"] as const).map(
-                renderDocumentSection,
-              )}
+              {(
+                ["quotation", "contract", "approval", "purchase-order"] as const
+              ).map(renderDocumentSection)}
             </>
           )}
           {error && (
