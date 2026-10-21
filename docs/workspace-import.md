@@ -22,6 +22,18 @@ deployment; it does not create or upgrade any hosting resource.
    imports must still fit the full envelope limit. Original PDF quotations and
    PDF/DOCX contracts use protected chunk staging below when they exceed that limit.
 
+An authorized maintainer can also queue an import by pushing a strict request to
+`.github/workspace-import-request.json` on `main`: `{ "version": 1, "mode":
+"prepare" }` prepares the key; `dry-run` or `apply` require an `envelope` field
+containing only the encrypted envelope. Never put plaintext sponsor data, logo
+bytes or credentials in that file. The push workflow checks out the triggering
+commit and uses the same import concurrency group, credentials, validation,
+expiry and replay protections as a manual dispatch. An `apply` request runs its
+own dry-run first and stops if it fails. Do not replace a pending request or
+rotate its key. Check the exact commit's successful run before proceeding, then
+remove the request file; deletion is a safe no-op. Repository history retains
+the ciphertext, so this route requires authorization for that destination.
+
 ## Original PDF quotations
 
 Quotation imports require an existing, unambiguous sponsor. They add only private

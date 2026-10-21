@@ -1,5 +1,8 @@
 name: Import authorized workspace records
 on:
+  push:
+    branches: [main]
+    paths: [.github/workspace-import-request.json]
   workflow_dispatch:
     inputs:
       mode:
@@ -22,15 +25,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "24"
           cache: npm
       - run: npm ci --no-audit --no-fund
       - name: Execute protected import
+        if: github.event_name == 'workflow_dispatch'
         env:
           SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           IMPORT_MODE: ${{ inputs.mode }}
           IMPORT_ENVELOPE: ${{ inputs.envelope }}
         run: node scripts/workspace-import.mjs
+      - name: Execute queued protected import
+        if: github.event_name == 'push'
+        env:
+          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: node scripts/run-workspace-import-request.mjs
