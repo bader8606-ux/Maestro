@@ -1575,7 +1575,7 @@ function SponsorLogoDisplay({
 function SponsorAvatar({ sponsor }: { sponsor: Sponsor }) {
   const logo = sponsor.attachments.find((a) => a.kind === "logo");
   return (
-    <div className="sponsor-avatar">
+    <div className={"sponsor-avatar" + (logo ? " has-logo" : "")}>
       {logo ? (
         <img src={attachmentUrl(logo)} alt={sponsor.name + " logo"} />
       ) : (

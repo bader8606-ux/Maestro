@@ -373,15 +373,20 @@ button.sponsor-logo-frame {
   padding: 8px 10px;
   font-size: 11px;
 }
-.sponsor-avatar img {
-  background-color: #858585;
-  background-image: conic-gradient(
-    #929292 25%,
-    #787878 0 50%,
-    #929292 0 75%,
-    #787878 0
-  );
-  background-size: 8px 8px;
+.sponsor-avatar.has-logo {
+  width: 120px;
+  height: 80px;
+  padding: 10px;
+  background: #fff;
+  border-color: #53606d;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.sponsor-avatar.has-logo img {
+  padding: 0;
+  border-radius: 0;
+  min-width: 0;
+  min-height: 0;
 }
 .sponsor-logo-frame:focus-visible,
 .sponsor-logo-action:focus-visible,
