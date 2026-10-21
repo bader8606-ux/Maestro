@@ -152,6 +152,23 @@ provider errors, SQL and private keys are not printed. A lost database response
 checks the marker before cleaning staged files. Temporary plaintext/envelope
 files should be removed after the authorized import is verified.
 
+Company imports may include an optional strict `details` object with `contact`,
+`mobile`, `email`, `approval`, `approvalDate`, `notesAppend` and `notesArAppend`.
+Only supplied fields change; omitted contact details and approval fields retain
+their existing values. Contact, mobile, email, approval and date validation use
+the same rules as sponsor editing. A mobile number requires an international
+country code; dates use `YYYY-MM-DD`. Explicit empty contact/mobile/email/date
+values clear that field. Notes append without repeating the same text, and an
+overlong combined result fails rather than discarding existing notes.
+
+For a newly created company, supplied approval details do not issue a purchase
+order or record a payment. Omitted approval details use the normal initial
+defaults. Existing purchase orders, payments, attachments and benefit completion
+remain unchanged. A company's `value` is its agreed sponsorship amount;
+`referenceValue` changes the package's catalogue price only when explicitly
+provided. Sponsor matching requires the same normalized name and does not merge
+different company names based on similar spelling.
+
 For an explicitly authorized replacement of an existing sponsor's terms, a
 payload entry may use `name` and `update` with `value`, the complete bilingual
 `benefits` list, and `notesAppend`. It requires an existing, unambiguous sponsor;

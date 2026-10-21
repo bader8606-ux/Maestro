@@ -51,6 +51,17 @@ const image = z
 const benefit = z
   .object({ title: text(300), titleAr: z.string().trim().max(300) })
   .strict();
+const companyDetails = z
+  .object({
+    contact: sponsorSchema.shape.contact.optional(),
+    mobile: sponsorSchema.shape.mobile.optional(),
+    email: sponsorSchema.shape.email.optional(),
+    approval: sponsorSchema.shape.approval.optional(),
+    approvalDate: sponsorSchema.shape.approvalDate.optional(),
+    notesAppend: text(3000).optional(),
+    notesArAppend: text(3000).optional(),
+  })
+  .strict();
 const company = z
   .object({
     name: text(200),
@@ -62,6 +73,7 @@ const company = z
     consideration: z.string().trim().max(1000),
     benefits: z.array(benefit).max(300),
     excludedBenefits: z.array(text(300)).max(300).optional(),
+    details: companyDetails.optional(),
     logo: image.optional(),
   })
   .strict()
@@ -825,6 +837,24 @@ export function planImport(payload, state) {
         consideration: s.consideration || base.consideration || "",
         benefits: mergeBenefits(retainedBenefits, s.benefits),
       };
+      if (s.details) {
+        for (const field of [
+          "contact",
+          "mobile",
+          "email",
+          "approval",
+          "approvalDate",
+        ])
+          if (s.details[field] !== undefined) data[field] = s.details[field];
+        for (const [field, append] of [
+          ["notes", "notesAppend"],
+          ["notesAr", "notesArAppend"],
+        ]) {
+          const addition = s.details[append];
+          if (addition && !(data[field] || "").includes(addition))
+            data[field] = [data[field], addition].filter(Boolean).join("\n\n");
+        }
+      }
       sponsorSchema.parse(data);
       for (const required of s.benefits)
         if (

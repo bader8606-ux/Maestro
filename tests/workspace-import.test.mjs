@@ -1455,3 +1455,176 @@ test("Contact amendments preserve existing channels and statuses while recording
     /schema/,
   );
 });
+
+test("Company details persist explicit contacts and confirmation independently of catalogue price, PO and receipts", () => {
+  const catalogue = fixture();
+  catalogue.sponsors[0].referenceValue = 1000;
+  const seed = planImport(validatePayload(catalogue, projectRef), emptyState());
+  const previous = { ...seed.sponsors[0], revision: 1 };
+  const input = fixture();
+  input.sponsors[0].name = "Distinct fixture company";
+  input.sponsors[0].value = 800;
+  input.sponsors[0].details = {
+    contact: "  Fixture Contact  ",
+    mobile: "+966500000001",
+    email: "contact@example.test",
+    approval: "Approved",
+    approvalDate: "2026-10-20",
+    notesAppend: "Confirmation received; contracting documents requested.",
+    notesArAppend: "تأكيد تجريبي؛ طلب استكمال مستندات التعاقد.",
+  };
+  const payload = validatePayload(input, projectRef);
+  assert.deepEqual(
+    decryptEnvelope(encryptEnvelope(payload, key), key, projectRef),
+    payload,
+  );
+  const state = {
+    packages: seed.packages,
+    sponsors: [previous],
+    attachments: [],
+  };
+  const before = structuredClone(state);
+  const plan = planImport(payload, state);
+  assert.equal(plan.summary.created, 1);
+  assert.equal(plan.summary.updated, 0);
+  assert.equal(plan.packages.length, 0);
+  const row = plan.sponsors[0];
+  assert.notEqual(row.id, previous.id);
+  assert.equal(row.data.value, 800);
+  assert.equal(row.data.contact, "Fixture Contact");
+  for (const field of ["mobile", "email", "approval", "approvalDate"])
+    assert.equal(row.data[field], payload.sponsors[0].details[field]);
+  assert.equal(row.data.notes, payload.sponsors[0].details.notesAppend);
+  assert.equal(row.data.notesAr, payload.sponsors[0].details.notesArAppend);
+  assert.equal(row.data.poIssued, false);
+  assert.equal(row.data.poNumber, "");
+  assert.equal(row.data.poDate, "");
+  assert.deepEqual(row.data.payments, []);
+  assert.equal(row.data.benefits[0].completed, false);
+  assert.equal(state.packages[0].data.referenceValue, 1000);
+  assert.deepEqual(state, before);
+});
+
+test("Partial company details preserve omitted fields and append notes idempotently", () => {
+  const seed = planImport(fixture(), emptyState());
+  const previous = structuredClone(seed.sponsors[0]);
+  previous.revision = 4;
+  Object.assign(previous.data, {
+    contact: "Previous fixture contact",
+    mobile: "+966500000002",
+    email: "previous@example.test",
+    approval: "Approved",
+    approvalDate: "2026-10-01",
+    poIssued: true,
+    poNumber: "Fixture PO",
+    poDate: "2026-10-02",
+    notes: "Existing fixture note.",
+    notesAr: "ملاحظة تجريبية سابقة.",
+    payments: [
+      {
+        id: randomUUID(),
+        amount: 25,
+        date: "2026-10-03",
+        note: "Fixture receipt",
+      },
+    ],
+  });
+  previous.data.benefits[0].completed = true;
+  const attachment = {
+    id: randomUUID(),
+    sponsor_id: previous.id,
+    kind: "approval",
+    path: "fixture/approval.pdf",
+  };
+  const state = {
+    packages: seed.packages,
+    sponsors: [previous],
+    attachments: [attachment],
+  };
+  const before = structuredClone(state);
+  const input = fixture();
+  input.sponsors[0].details = {
+    contact: "Replacement fixture contact",
+    notesAppend: "Additional fixture note.",
+    notesArAppend: "ملاحظة تجريبية إضافية.",
+  };
+  const payload = validatePayload(input, projectRef);
+  const plan = planImport(payload, state);
+  const row = plan.sponsors[0];
+  assert.equal(row.id, previous.id);
+  assert.equal(row.data.contact, "Replacement fixture contact");
+  assert.equal(
+    row.data.notes,
+    "Existing fixture note.\n\nAdditional fixture note.",
+  );
+  assert.equal(
+    row.data.notesAr,
+    "ملاحظة تجريبية سابقة.\n\nملاحظة تجريبية إضافية.",
+  );
+  for (const field of Object.keys(previous.data).filter(
+    (field) =>
+      !["contact", "notes", "notesAr", "consideration"].includes(field),
+  ))
+    assert.deepEqual(row.data[field], previous.data[field]);
+  assert.deepEqual(state, before);
+  assert.deepEqual(plan.logos, []);
+  assert.deepEqual(plan.quotations, []);
+  assert.deepEqual(plan.contracts, []);
+  const repeated = planImport(payload, {
+    ...state,
+    sponsors: [{ ...row, revision: 5 }],
+  });
+  assert.equal(repeated.summary.updated, 0);
+  assert.deepEqual(repeated.sponsors[0].data, row.data);
+  const clear = structuredClone(payload);
+  clear.sponsors[0].details = {
+    contact: "",
+    mobile: "",
+    email: "",
+    approvalDate: "",
+  };
+  const cleared = planImport(validatePayload(clear, projectRef), state)
+    .sponsors[0].data;
+  for (const field of ["contact", "mobile", "email", "approvalDate"])
+    assert.equal(cleared[field], "");
+  assert.equal(cleared.approval, "Approved");
+  assert.equal(cleared.poIssued, true);
+  assert.deepEqual(cleared.payments, previous.data.payments);
+});
+
+test("Company details reject malformed channels, dates, statuses and unsupported mutations", () => {
+  for (const details of [
+    { contact: "x".repeat(101) },
+    { mobile: "0500000001" },
+    { email: "invalid-email" },
+    { approval: "Confirmed" },
+    { approvalDate: "2026-02-30" },
+    { approvalDate: "20/10/2026" },
+    { poIssued: true },
+    { notesAppend: "" },
+    { notesArAppend: "x".repeat(3001) },
+  ]) {
+    const payload = fixture();
+    payload.sponsors[0].details = details;
+    assert.throws(() => validatePayload(payload, projectRef), /schema/);
+  }
+  const seed = planImport(fixture(), emptyState());
+  for (const [field, append] of [
+    ["notes", "notesAppend"],
+    ["notesAr", "notesArAppend"],
+  ]) {
+    const previous = structuredClone(seed.sponsors[0]);
+    previous.data[field] = "x".repeat(2999);
+    const payload = fixture();
+    payload.sponsors[0].details = { [append]: "Additional note" };
+    assert.throws(
+      () =>
+        planImport(validatePayload(payload, projectRef), {
+          packages: seed.packages,
+          sponsors: [previous],
+          attachments: [],
+        }),
+      /3000/,
+    );
+  }
+});
