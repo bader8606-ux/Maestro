@@ -382,6 +382,14 @@ button.sponsor-logo-frame {
   border-radius: 8px;
   overflow: hidden;
 }
+.sponsor-name {
+  width: min(360px, calc(100vw - 80px));
+}
+.sponsor-name > span {
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 .sponsor-avatar.has-logo img {
   padding: 0;
   border-radius: 0;
