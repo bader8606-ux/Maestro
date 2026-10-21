@@ -169,6 +169,20 @@ remain unchanged. A company's `value` is its agreed sponsorship amount;
 provided. Sponsor matching requires the same normalized name and does not merge
 different company names based on similar spelling.
 
+To rename an existing sponsor without changing its terms, use a strict entry
+`{ name, renameTo, logo? }`. Both names are validated, and the source must resolve
+to exactly one existing record. A target matching another record after Unicode
+NFKC normalization, trimming and lowercasing is rejected. The same identity
+cannot be reused by another entry in the batch. The transaction locks the tables
+and rechecks source and target identities before changing the original record's
+name, revision and Last Updated time. Its ID, package, contacts, statuses,
+payments, benefits and existing attachments stay intact. An optional logo uses
+the normal signature validation and preserves an already attached logo.
+
+A retry with the same operation ID and unchanged payload uses the committed
+replay marker before planning. A new operation still requires its named source;
+the importer does not assume that an existing target belongs to a missing source.
+
 For an explicitly authorized replacement of an existing sponsor's terms, a
 payload entry may use `name` and `update` with `value`, the complete bilingual
 `benefits` list, and `notesAppend`. It requires an existing, unambiguous sponsor;

@@ -79,6 +79,9 @@ const company = z
   .strict()
   .refine((s) => s.packageBenefits.length === s.packageBenefitsAr.length);
 const logoOnly = z.object({ name: text(200), logo: image }).strict();
+const renameOnly = z
+  .object({ name: text(200), renameTo: text(200), logo: image.optional() })
+  .strict();
 const quotation = z
   .object({
     fileId: z.string().uuid(),
@@ -148,6 +151,7 @@ const payloadSchema = z
         z.union([
           company,
           logoOnly,
+          renameOnly,
           amendment,
           nameOnly,
           quotationOnly,
@@ -275,6 +279,16 @@ export function validatePayload(input, projectRef) {
     throw new Error(
       "The encrypted import contains duplicate sponsor identities.",
     );
+  const identities = new Map();
+  for (const [index, sponsor] of data.sponsors.entries())
+    for (const name of [sponsor.name, sponsor.renameTo].filter(Boolean)) {
+      const identity = normalized(name);
+      if (identities.has(identity) && identities.get(identity) !== index)
+        throw new Error(
+          "The encrypted import contains overlapping sponsor identities.",
+        );
+      identities.set(identity, index);
+    }
   for (const s of data.sponsors) {
     if (s.logo) imageBytes(s.logo);
     const benefits =
@@ -667,7 +681,20 @@ export function planImport(payload, state) {
   for (const s of payload.sponsors) {
     const previous = matchOne(state.sponsors, s.name);
     let row;
-    if (s.create) {
+    if (s.renameTo !== undefined) {
+      if (!previous) throw new Error("A rename requires an existing sponsor.");
+      const target = matchOne(state.sponsors, s.renameTo);
+      if (target && target.id !== previous.id)
+        throw new Error("The renamed sponsor identity already exists.");
+      const data = { ...structuredClone(previous.data), name: s.renameTo };
+      sponsorSchema.parse(data);
+      row = {
+        id: previous.id,
+        previous,
+        data,
+        package_id: previous.package_id,
+      };
+    } else if (s.create) {
       const data = previous
         ? structuredClone(previous.data)
         : {
@@ -989,6 +1016,8 @@ export function transactionSql(plan, payload, payloadHash) {
   ];
   const nameCount = (table, name) =>
     `(select count(*) from public.maestro_${table} where lower(btrim(data->>'name'))=lower(btrim(${sqlString(name)})))`;
+  const normalizedNameCount = (name) =>
+    `(select count(*) from public.maestro_sponsors where lower(btrim(normalize(data->>'name',NFKC)))=lower(btrim(normalize(${sqlString(name)},NFKC))))`;
   for (const p of plan.packageGuards || [])
     operations.push(
       `if ${nameCount("packages", p.data.name)} <> 1 or not exists(select 1 from public.maestro_packages where id=${sqlUuid(p.id)} and data=${sqlJson(p.data)}) then raise exception 'Import conflict'; end if;`,
@@ -1010,9 +1039,14 @@ export function transactionSql(plan, payload, payloadHash) {
       );
   }
   for (const s of plan.sponsors) {
-    operations.push(
-      `if ${nameCount("sponsors", s.data.name)} <> ${s.previous ? 1 : 0} then raise exception 'Import conflict'; end if;`,
-    );
+    if (s.previous && s.previous.data.name !== s.data.name) {
+      operations.push(
+        `if ${normalizedNameCount(s.previous.data.name)} <> 1 or ${normalizedNameCount(s.data.name)} <> ${normalized(s.previous.data.name) === normalized(s.data.name) ? 1 : 0} then raise exception 'Import conflict'; end if;`,
+      );
+    } else
+      operations.push(
+        `if ${nameCount("sponsors", s.data.name)} <> ${s.previous ? 1 : 0} then raise exception 'Import conflict'; end if;`,
+      );
     if (s.previous) {
       operations.push(
         `if not exists(select 1 from public.maestro_sponsors where id=${sqlUuid(s.id)} and revision=${s.previous.revision} and data=${sqlJson(s.previous.data)}) then raise exception 'Import conflict'; end if;`,

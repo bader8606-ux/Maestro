@@ -86,6 +86,7 @@ const company = (name, pkg) => ({
   consideration: "",
   benefits: [{ title: "Fixture visibility", titleAr: "الظهور التجريبي" }],
 });
+
 await query(`create role anon; create role authenticated; create role service_role;
 create schema auth; create table auth.users(id uuid primary key,email text,email_confirmed_at timestamptz);
 create table auth.sessions(id uuid primary key,user_id uuid);
@@ -507,5 +508,122 @@ test("Actual DOCX contract staging preserves records, quotations and package ass
   assert.throws(
     () => query("set role anon; select * from public.maestro_attachments"),
     /permission denied/,
+  );
+});
+
+test("Sponsor renaming commits only the name, preserves ownership and replays safely", () => {
+  const input = {
+    version: 1,
+    projectRef,
+    operationId: randomUUID(),
+    sponsors: [company("Fixture rename source", "Fixture rename package")],
+  };
+  const seed = validatePayload(input, projectRef);
+  json(transactionSql(planImport(seed, state()), seed, "1".repeat(64)));
+  const source = state().sponsors.find(
+    (s) => s.data.name === "Fixture rename source",
+  );
+  const full = {
+    ...source.data,
+    contact: "Fixture contact",
+    mobile: "+966500000001",
+    email: "fixture@example.test",
+    approval: "Approved",
+    approvalDate: "2026-10-20",
+    poIssued: true,
+    poNumber: "Fixture PO",
+    poDate: "2026-10-21",
+    payments: [
+      {
+        id: randomUUID(),
+        amount: 10.25,
+        date: "2026-10-21",
+        note: "Fixture receipt",
+      },
+    ],
+    notes: "Fixture private note",
+    notesAr: "ملاحظة تجريبية",
+    boothSize: "3 × 3 m",
+    boothLocation: "Fixture location",
+    benefits: source.data.benefits.map((b) => ({ ...b, completed: true })),
+  };
+  query(`update maestro_sponsors set data=${value(full)} where id=${quote(source.id)};
+insert into maestro_attachments(id,sponsor_id,kind,name,mime,size,path) values(${quote(randomUUID())},${quote(source.id)},'logo','fixture.png','image/png',1,${quote("fixture/" + randomUUID())});`);
+  const before = state();
+  const old = before.sponsors.find((s) => s.id === source.id);
+  const payload = validatePayload(
+    {
+      version: 1,
+      projectRef,
+      operationId: randomUUID(),
+      sponsors: [
+        { name: old.data.name, renameTo: "Fixture renamed (جهة تجريبية)" },
+      ],
+    },
+    projectRef,
+  );
+  const plan = planImport(payload, before);
+  const sql = transactionSql(plan, payload, "2".repeat(64));
+  const summary = json(sql);
+  assert.equal(summary.updated, 1);
+  const after = state();
+  const saved = after.sponsors.find((s) => s.id === source.id);
+  assert.deepEqual(saved.data, {
+    ...old.data,
+    name: payload.sponsors[0].renameTo,
+  });
+  assert.equal(saved.package_id, old.package_id);
+  assert.equal(saved.revision, old.revision + 1);
+  assert.deepEqual(after.attachments, before.attachments);
+  assert.deepEqual(after.packages, before.packages);
+  assert.deepEqual(json(sql), summary);
+  assert.deepEqual(state(), after);
+});
+
+test("A target inserted after rename planning causes a complete rollback", () => {
+  const payloadSeed = validatePayload(
+    {
+      version: 1,
+      projectRef,
+      operationId: randomUUID(),
+      sponsors: [company("Fixture late rename source", "Fixture late package")],
+    },
+    projectRef,
+  );
+  json(
+    transactionSql(
+      planImport(payloadSeed, state()),
+      payloadSeed,
+      "3".repeat(64),
+    ),
+  );
+  const before = state();
+  const source = before.sponsors.find(
+    (s) => s.data.name === "Fixture late rename source",
+  );
+  const payload = validatePayload(
+    {
+      version: 1,
+      projectRef,
+      operationId: randomUUID(),
+      sponsors: [{ name: source.data.name, renameTo: "Fixture target" }],
+    },
+    projectRef,
+  );
+  const plan = planImport(payload, before);
+  query(
+    `insert into maestro_sponsors(id,data,package_id) values(${quote(randomUUID())},${value({ ...source.data, name: "Ｆｉｘｔｕｒｅ ｔａｒｇｅｔ" })},${quote(source.package_id)});`,
+  );
+  const raced = state();
+  assert.throws(
+    () => query(transactionSql(plan, payload, "4".repeat(64))),
+    /Import conflict/,
+  );
+  assert.deepEqual(state(), raced);
+  assert.equal(
+    query(
+      `select count(*) from maestro_settings where id=${quote("import:" + payload.operationId)}`,
+    ),
+    "0",
   );
 });

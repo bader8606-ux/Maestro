@@ -1628,3 +1628,227 @@ test("Company details reject malformed channels, dates, statuses and unsupported
     );
   }
 });
+
+test("Rename-only imports retain the sponsor identity and all other data while adding its validated logo", () => {
+  const seed = planImport(fixture(), emptyState());
+  const previous = structuredClone(seed.sponsors[0]);
+  previous.revision = 7;
+  Object.assign(previous.data, {
+    contact: "Fixture Contact",
+    mobile: "+966500000003",
+    email: "rename@example.test",
+    approval: "Approved",
+    approvalDate: "2026-10-01",
+    poIssued: true,
+    poNumber: "Fixture PO",
+    poDate: "2026-10-02",
+    boothSize: "3 × 3 m",
+    boothLocation: "Fixture location",
+    notes: "Existing fixture note.",
+    notesAr: "ملاحظة تجريبية.",
+    payments: [
+      {
+        id: randomUUID(),
+        amount: 75,
+        date: "2026-10-03",
+        note: "Fixture payment",
+      },
+    ],
+  });
+  previous.data.benefits[0].completed = true;
+  const attachment = {
+    id: randomUUID(),
+    sponsor_id: previous.id,
+    kind: "approval",
+    name: "Fixture approval.pdf",
+    path: "fixture/approval.pdf",
+  };
+  const state = {
+    packages: seed.packages,
+    sponsors: [previous],
+    attachments: [attachment],
+  };
+  const before = structuredClone(state);
+  const payload = validatePayload(
+    {
+      version: 1,
+      projectRef,
+      operationId: randomUUID(),
+      sponsors: [
+        {
+          name: previous.data.name,
+          renameTo: "Fixture company (شركة تجريبية)",
+          logo: logo(),
+        },
+      ],
+    },
+    projectRef,
+  );
+  assert.deepEqual(
+    decryptEnvelope(encryptEnvelope(payload, key), key, projectRef),
+    payload,
+  );
+  const plan = planImport(payload, state);
+  assert.equal(plan.summary.created, 0);
+  assert.equal(plan.summary.updated, 1);
+  assert.equal(plan.summary.logosAdded, 1);
+  assert.equal(plan.summary.packagesCreated, 0);
+  assert.equal(plan.summary.packagesUpdated, 0);
+  const row = plan.sponsors[0];
+  assert.equal(row.id, previous.id);
+  assert.equal(row.package_id, previous.package_id);
+  assert.deepEqual(row.data, {
+    ...previous.data,
+    name: payload.sponsors[0].renameTo,
+  });
+  assert.deepEqual(row.previous, previous);
+  assert.equal(row.changed, true);
+  assert.equal(plan.logos[0].sponsor_id, previous.id);
+  assert.deepEqual(plan.logos[0].bytes, png);
+  assert.deepEqual(state, before);
+  const sql = transactionSql(plan, payload, "f".repeat(64));
+  assert.match(sql, /normalize\(data->>'name',NFKC\)/);
+  assert.ok(sql.includes("normalize('" + previous.data.name + "',NFKC)"));
+  assert.ok(sql.includes("normalize('" + row.data.name + "',NFKC)"));
+  assert.match(sql, /<> 1 or .* <> 0 then raise exception 'Import conflict'/);
+  assert.match(sql, /revision=7/);
+  assert.match(sql, /revision=revision\+1,updated_at=now\(\)/);
+  assert.ok(
+    sql.indexOf("return;") < sql.indexOf("normalize(data->>'name',NFKC)"),
+  );
+  const withLogo = {
+    ...state,
+    attachments: [...state.attachments, { ...plan.logos[0] }],
+  };
+  const preservedLogo = planImport(payload, withLogo);
+  assert.equal(preservedLogo.summary.logosPreserved, 1);
+  assert.deepEqual(preservedLogo.logos, []);
+});
+
+test("Renames refuse missing or ambiguous sources and target collisions, including normalized batch overlap", () => {
+  const seed = planImport(fixture(), emptyState());
+  const previous = { ...seed.sponsors[0], revision: 2 };
+  const input = {
+    version: 1,
+    projectRef,
+    operationId: randomUUID(),
+    sponsors: [
+      { name: previous.data.name, renameTo: "Distinct fixture company" },
+    ],
+  };
+  const payload = validatePayload(input, projectRef);
+  const state = {
+    packages: seed.packages,
+    sponsors: [previous],
+    attachments: [],
+  };
+  const other = { ...structuredClone(previous), id: randomUUID() };
+  for (const name of [
+    "Distinct fixture company",
+    "  DISTINCT fixture company  ",
+    "Ｄｉｓｔｉｎｃｔ fixture company",
+  ])
+    assert.throws(
+      () =>
+        planImport(payload, {
+          ...state,
+          sponsors: [previous, { ...other, data: { ...other.data, name } }],
+        }),
+      /already exists/,
+    );
+  assert.throws(
+    () =>
+      planImport(payload, {
+        ...state,
+        sponsors: [
+          previous,
+          { ...other, data: { ...other.data, name: previous.data.name } },
+        ],
+      }),
+    /ambiguous/,
+  );
+  assert.throws(
+    () => planImport(payload, { ...state, sponsors: [] }),
+    /existing sponsor/,
+  );
+  assert.throws(
+    () =>
+      planImport(payload, {
+        ...state,
+        sponsors: [
+          {
+            ...previous,
+            data: { ...previous.data, name: input.sponsors[0].renameTo },
+          },
+        ],
+      }),
+    /existing sponsor/,
+  );
+  for (const another of [
+    { name: "Another fixture source", renameTo: "DISTINCT FIXTURE COMPANY" },
+    { name: "DISTINCT fixture company", create: true },
+    { name: "Another fixture source", renameTo: previous.data.name },
+  ])
+    assert.throws(
+      () =>
+        validatePayload(
+          {
+            ...input,
+            sponsors: [...input.sponsors, another],
+          },
+          projectRef,
+        ),
+      /overlapping/,
+    );
+  for (const change of [
+    { renameTo: "" },
+    { renameTo: "x".repeat(201) },
+    { poIssued: true },
+    { logo: { ...logo(), mime: "image/jpeg" } },
+  ])
+    assert.throws(() =>
+      validatePayload(
+        {
+          ...input,
+          sponsors: [{ ...input.sponsors[0], ...change }],
+        },
+        projectRef,
+      ),
+    );
+});
+
+test("A same-identity rename may adjust display case or be a no-op without touching other fields", () => {
+  const seed = planImport(fixture(), emptyState());
+  const previous = { ...seed.sponsors[0], revision: 3 };
+  const state = {
+    packages: seed.packages,
+    sponsors: [previous],
+    attachments: [],
+  };
+  for (const renameTo of [
+    previous.data.name,
+    previous.data.name.toUpperCase(),
+  ]) {
+    const payload = validatePayload(
+      {
+        version: 1,
+        projectRef,
+        operationId: randomUUID(),
+        sponsors: [{ name: previous.data.name, renameTo }],
+      },
+      projectRef,
+    );
+    const plan = planImport(payload, state);
+    assert.equal(plan.sponsors[0].id, previous.id);
+    assert.deepEqual(plan.sponsors[0].data, {
+      ...previous.data,
+      name: renameTo,
+    });
+    assert.equal(plan.summary.updated, Number(renameTo !== previous.data.name));
+    if (renameTo !== previous.data.name)
+      assert.match(
+        transactionSql(plan, payload, "e".repeat(64)),
+        /<> 1 or .* <> 1 then raise exception 'Import conflict'/,
+      );
+  }
+});
