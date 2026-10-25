@@ -662,6 +662,263 @@ test("Private contract upload readback verifies the original DOCX bytes and chec
   );
 });
 
+test("A mixed original quotation and DOCX contract share one protected operation without changing sponsor fields", () => {
+  const operationId = randomUUID();
+  const name = fixture().sponsors[0].name;
+  const quotationBytes = quotationFixture(1000).bytes;
+  const contractBytes = docxFixtureBytes();
+  const quoted = buildQuotationStages({
+    projectRef,
+    operationId,
+    sponsorName: name,
+    fileName: "Mixed fixture quotation.pdf",
+    bytes: quotationBytes,
+  });
+  const contracted = buildContractStages({
+    projectRef,
+    operationId,
+    sponsorName: name,
+    fileName: "Mixed fixture contract.docx",
+    bytes: contractBytes,
+  });
+  const payload = validatePayload(
+    {
+      version: 1,
+      projectRef,
+      operationId,
+      sponsors: [
+        {
+          name,
+          quotations: [quoted.quotation],
+          contracts: [contracted.contract],
+        },
+      ],
+    },
+    projectRef,
+  );
+  const stages = [...quoted.stages, ...contracted.stages];
+  const rows = stages.map((stage) => {
+    assert.deepEqual(
+      decryptEnvelope(encryptEnvelope(stage, key), key, projectRef),
+      stage,
+    );
+    return { data: { ...stage, keyId: key.keyId, expiresAt: key.expiresAt } };
+  });
+  assert.deepEqual(
+    decryptEnvelope(encryptEnvelope(payload, key), key, projectRef),
+    payload,
+  );
+  const seed = planImport(fixture(), emptyState());
+  const previous = { ...seed.sponsors[0], revision: 9 };
+  Object.assign(previous.data, {
+    contact: "Fixture document contact",
+    mobile: "+966500000004",
+    email: "mixed-documents@example.test",
+    approval: "Approved",
+    approvalDate: "2026-10-01",
+    poIssued: true,
+    poNumber: "Fixture PO",
+    poDate: "2026-10-02",
+    boothSize: "3 × 3 m",
+    boothLocation: "Fixture location",
+    notes: "Existing document fixture note.",
+    notesAr: "ملاحظة مستندات تجريبية.",
+    payments: [
+      {
+        id: randomUUID(),
+        amount: 50,
+        date: "2026-10-03",
+        note: "Fixture payment",
+      },
+    ],
+  });
+  previous.data.benefits[0].completed = true;
+  const state = {
+    packages: seed.packages,
+    sponsors: [previous],
+    attachments: [
+      {
+        id: randomUUID(),
+        sponsor_id: randomUUID(),
+        kind: "quotation",
+        sha256: quoted.quotation.sha256,
+      },
+      {
+        id: randomUUID(),
+        sponsor_id: randomUUID(),
+        kind: "contract",
+        sha256: contracted.contract.sha256,
+      },
+      {
+        id: randomUUID(),
+        sponsor_id: previous.id,
+        kind: "approval",
+        path: "fixture/approval.pdf",
+      },
+    ],
+    quotationFiles: assembleQuotationFiles(payload, rows, key),
+    contractFiles: assembleContractFiles(payload, rows, key),
+  };
+  const before = structuredClone(state);
+  const plan = planImport(payload, state);
+  assert.deepEqual(structuredClone(state), before);
+  assert.deepEqual(plan.sponsors[0].data, previous.data);
+  assert.equal(plan.sponsors[0].id, previous.id);
+  assert.equal(plan.sponsors[0].package_id, previous.package_id);
+  assert.equal(plan.sponsors[0].changed, false);
+  assert.equal(plan.summary.created, 0);
+  assert.equal(plan.summary.updated, 0);
+  assert.equal(plan.summary.quotationsAdded, 1);
+  assert.equal(plan.summary.contractsAdded, 1);
+  assert.deepEqual(plan.packages, []);
+  assert.deepEqual(plan.logos, []);
+  assert.equal(plan.quotations[0].sponsor_id, previous.id);
+  assert.equal(plan.contracts[0].sponsor_id, previous.id);
+  assert.equal(plan.quotations[0].kind, "quotation");
+  assert.equal(plan.contracts[0].kind, "contract");
+  assert.ok(plan.quotations[0].bytes.equals(quotationBytes));
+  assert.ok(plan.contracts[0].bytes.equals(contractBytes));
+  const sql = transactionSql(plan, payload, "d".repeat(64));
+  assert.match(sql, /Quotation import conflict/);
+  assert.match(sql, /Contract import conflict/);
+  assert.match(sql, /revision=9/);
+  assert.match(sql, /Import operation conflict/);
+  assert.match(
+    sql,
+    /delete from public\.maestro_settings where id like 'import-stage:/,
+  );
+  const repeat = planImport(payload, {
+    ...state,
+    attachments: [...state.attachments, ...plan.quotations, ...plan.contracts],
+  });
+  assert.deepEqual(repeat.quotations, []);
+  assert.deepEqual(repeat.contracts, []);
+  assert.equal(repeat.summary.quotationsPreserved, 1);
+  assert.equal(repeat.summary.contractsPreserved, 1);
+  assert.deepEqual(repeat.sponsors[0].data, previous.data);
+  assert.throws(
+    () => planImport(payload, { ...state, sponsors: [] }),
+    /existing sponsor/,
+  );
+});
+
+test("Mixed manifests keep strict fields, global limits and authenticated quotation/contract kind binding", () => {
+  const quoted = quotationFixture(1000);
+  const name = quoted.payload.sponsors[0].name;
+  const contracted = buildContractStages({
+    projectRef,
+    operationId: quoted.payload.operationId,
+    sponsorName: name,
+    fileName: "Mixed fixture contract.pdf",
+    bytes: quoted.bytes,
+  });
+  const input = {
+    ...quoted.payload,
+    sponsors: [
+      {
+        name,
+        quotations: [quoted.quotation],
+        contracts: [contracted.contract],
+      },
+    ],
+  };
+  const payload = validatePayload(input, projectRef);
+  const rows = [...quoted.stages, ...contracted.stages].map((stage) => ({
+    data: { ...stage, keyId: key.keyId, expiresAt: key.expiresAt },
+  }));
+  for (const change of [
+    { contracts: [] },
+    { quotations: [] },
+    { approval: "Approved" },
+    {
+      contracts: [{ ...contracted.contract, fileId: quoted.quotation.fileId }],
+    },
+    {
+      contracts: Array.from({ length: 10 }, () => ({
+        ...contracted.contract,
+        fileId: randomUUID(),
+      })),
+    },
+  ])
+    assert.throws(() =>
+      validatePayload(
+        {
+          ...input,
+          sponsors: [{ ...input.sponsors[0], ...change }],
+        },
+        projectRef,
+      ),
+    );
+  const swapped = validatePayload(
+    {
+      ...input,
+      sponsors: [
+        {
+          name,
+          quotations: [contracted.contract],
+          contracts: [quoted.quotation],
+        },
+      ],
+    },
+    projectRef,
+  );
+  assert.throws(() => assembleQuotationFiles(swapped, rows, key), /kind/);
+  assert.throws(() => assembleContractFiles(swapped, rows, key), /kind/);
+  const alteredOwner = structuredClone(rows);
+  alteredOwner[0].data.stage.sponsorName = "Another fixture sponsor";
+  assert.throws(
+    () => assembleQuotationFiles(payload, alteredOwner, key),
+    /ownership/,
+  );
+  assert.ok(
+    assembleQuotationFiles(payload, rows, key)
+      .get(quoted.quotation.fileId)
+      .equals(quoted.bytes),
+  );
+  assert.ok(
+    assembleContractFiles(payload, rows, key)
+      .get(contracted.contract.fileId)
+      .equals(quoted.bytes),
+  );
+  const seed = planImport(fixture(), emptyState());
+  const previous = { ...seed.sponsors[0], revision: 1 };
+  for (const existingKind of ["quotation", "contract"]) {
+    const descriptor =
+      existingKind === "quotation" ? quoted.quotation : contracted.contract;
+    const plan = planImport(payload, {
+      packages: seed.packages,
+      sponsors: [previous],
+      attachments: [
+        {
+          id: randomUUID(),
+          sponsor_id: previous.id,
+          kind: existingKind,
+          ...descriptor,
+          path: "fixture/existing.pdf",
+        },
+      ],
+      quotationFiles: assembleQuotationFiles(payload, rows, key),
+      contractFiles: assembleContractFiles(payload, rows, key),
+    });
+    assert.equal(
+      plan.summary.quotationsPreserved,
+      Number(existingKind === "quotation"),
+    );
+    assert.equal(
+      plan.summary.contractsPreserved,
+      Number(existingKind === "contract"),
+    );
+    assert.equal(
+      plan.summary.quotationsAdded,
+      Number(existingKind !== "quotation"),
+    );
+    assert.equal(
+      plan.summary.contractsAdded,
+      Number(existingKind !== "contract"),
+    );
+  }
+});
+
 test("Encrypted workflow envelope binds payload, key and project without exposing business fields", () => {
   const payload = fixture();
   payload.sponsors[0].logo = logo();

@@ -120,6 +120,13 @@ const payload = {
 };
 ```
 
+To attach both document types to one sponsor in the same operation, use
+`{ name: sponsorName, quotations: [quotation], contracts: [contract] }` as its
+single sponsor entry. Stage both originals with the same operation ID and current
+key before checking and applying the combined manifest. Each file remains bound
+to its own attachment kind; both metadata additions commit atomically while the
+sponsor's existing details and financial fields stay intact.
+
 The helper infers the MIME type from the extension unless an explicit matching
 `mime` is supplied. Contract descriptors have the same six fields as quotation
 descriptors; DOCX uses

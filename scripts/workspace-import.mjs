@@ -115,6 +115,13 @@ const contractOnly = z
 const quotationOnly = z
   .object({ name: text(200), quotations: z.array(quotation).min(1).max(10) })
   .strict();
+const mixedDocumentsOnly = z
+  .object({
+    name: text(200),
+    quotations: z.array(quotation).min(1).max(10),
+    contracts: z.array(contract).min(1).max(10),
+  })
+  .strict();
 const nameOnly = z
   .object({ name: text(200), create: z.literal(true) })
   .strict();
@@ -156,6 +163,7 @@ const payloadSchema = z
           nameOnly,
           quotationOnly,
           contractOnly,
+          mixedDocumentsOnly,
         ]),
       )
       .min(1)
