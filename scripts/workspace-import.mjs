@@ -125,6 +125,17 @@ const mixedDocumentsOnly = z
 const nameOnly = z
   .object({ name: text(200), create: z.literal(true) })
   .strict();
+const notesOnly = z
+  .object({
+    name: text(200),
+    notesAppend: text(3000).optional(),
+    notesArAppend: text(3000).optional(),
+  })
+  .strict()
+  .refine(
+    (sponsor) =>
+      sponsor.notesAppend !== undefined || sponsor.notesArAppend !== undefined,
+  );
 const amendment = z
   .object({
     name: text(200),
@@ -161,6 +172,7 @@ const payloadSchema = z
           renameOnly,
           amendment,
           nameOnly,
+          notesOnly,
           quotationOnly,
           contractOnly,
           mixedDocumentsOnly,
@@ -772,6 +784,25 @@ export function planImport(payload, state) {
         data.notes = [data.notes, s.update.notesAppend]
           .filter(Boolean)
           .join("\n\n");
+      sponsorSchema.parse(data);
+      row = {
+        id: previous.id,
+        previous,
+        data,
+        package_id: previous.package_id,
+      };
+    } else if (s.notesAppend !== undefined || s.notesArAppend !== undefined) {
+      if (!previous)
+        throw new Error("A notes-only import requires an existing sponsor.");
+      const data = structuredClone(previous.data);
+      for (const [field, append] of [
+        ["notes", "notesAppend"],
+        ["notesAr", "notesArAppend"],
+      ]) {
+        const addition = s[append];
+        if (addition && !(data[field] || "").includes(addition))
+          data[field] = [data[field], addition].filter(Boolean).join("\n\n");
+      }
       sponsorSchema.parse(data);
       row = {
         id: previous.id,

@@ -2109,3 +2109,190 @@ test("A same-identity rename may adjust display case or be a no-op without touch
       );
   }
 });
+
+test("Notes-only imports append both languages idempotently while preserving paid and in-kind sponsor data", () => {
+  for (const value of [999.99, null]) {
+    const seed = planImport(fixture(), emptyState());
+    const previous = structuredClone(seed.sponsors[0]);
+    previous.revision = 12;
+    Object.assign(previous.data, {
+      value,
+      consideration:
+        value === null ? "Fixture in-kind services" : "Fixture agreed terms",
+      contact: "Fixture note contact",
+      mobile: "+966500000005",
+      email: "notes@example.test",
+      approval: "In Progress",
+      approvalDate: "2026-10-01",
+      poIssued: true,
+      poNumber: "Fixture PO",
+      poDate: "2026-10-02",
+      boothSize: "3 × 3 m",
+      boothLocation: "Fixture location",
+      notes: "Existing fixture note.",
+      notesAr: "ملاحظة تجريبية سابقة.",
+      payments: [
+        {
+          id: randomUUID(),
+          amount: 50,
+          date: "2026-10-03",
+          note: "Fixture payment",
+        },
+      ],
+    });
+    previous.data.benefits[0].completed = true;
+    const state = {
+      packages: seed.packages,
+      sponsors: [previous],
+      attachments: [
+        {
+          id: randomUUID(),
+          sponsor_id: previous.id,
+          kind: "approval",
+          name: "Fixture approval.pdf",
+          path: "fixture/approval.pdf",
+        },
+      ],
+    };
+    const before = structuredClone(state);
+    const payload = validatePayload(
+      {
+        version: 1,
+        projectRef,
+        operationId: randomUUID(),
+        sponsors: [
+          {
+            name: previous.data.name,
+            notesAppend: "Additional fixture correspondence note.",
+            notesArAppend: "ملاحظة مراسلات تجريبية إضافية.",
+          },
+        ],
+      },
+      projectRef,
+    );
+    assert.deepEqual(
+      decryptEnvelope(encryptEnvelope(payload, key), key, projectRef),
+      payload,
+    );
+    const plan = planImport(payload, state);
+    const row = plan.sponsors[0];
+    assert.deepEqual(state, before);
+    assert.deepEqual(row.data, {
+      ...previous.data,
+      notes: previous.data.notes + "\n\n" + payload.sponsors[0].notesAppend,
+      notesAr:
+        previous.data.notesAr + "\n\n" + payload.sponsors[0].notesArAppend,
+    });
+    assert.equal(row.id, previous.id);
+    assert.equal(row.package_id, previous.package_id);
+    assert.equal(row.changed, true);
+    assert.equal(plan.summary.created, 0);
+    assert.equal(plan.summary.updated, 1);
+    for (const field of ["packages", "logos", "quotations", "contracts"])
+      assert.deepEqual(plan[field], []);
+    const repeated = planImport(payload, {
+      ...state,
+      sponsors: [{ ...row, revision: 13 }],
+    });
+    assert.equal(repeated.summary.updated, 0);
+    assert.deepEqual(repeated.sponsors[0].data, row.data);
+    const sql = transactionSql(plan, payload, "c".repeat(64));
+    assert.match(sql, /revision=12/);
+    assert.match(sql, /revision=revision\+1,updated_at=now\(\)/);
+    assert.match(sql, /Import operation conflict/);
+    assert.match(sql, /Import verification failed/);
+    for (const field of ["notesAppend", "notesArAppend"]) {
+      const single = validatePayload(
+        {
+          ...payload,
+          sponsors: [
+            { name: previous.data.name, [field]: payload.sponsors[0][field] },
+          ],
+        },
+        projectRef,
+      );
+      const singleData = planImport(single, state).sponsors[0].data;
+      const otherNote = field === "notesAppend" ? "notesAr" : "notes";
+      assert.equal(singleData[otherNote], previous.data[otherNote]);
+    }
+  }
+});
+
+test("Notes-only imports reject missing or ambiguous sponsors, undeclared fields and overflowing combined notes", () => {
+  const seed = planImport(fixture(), emptyState());
+  const previous = { ...seed.sponsors[0], revision: 1 };
+  const input = {
+    version: 1,
+    projectRef,
+    operationId: randomUUID(),
+    sponsors: [{ name: previous.data.name, notesAppend: "Fixture note." }],
+  };
+  const payload = validatePayload(input, projectRef);
+  const state = {
+    packages: seed.packages,
+    sponsors: [previous],
+    attachments: [],
+  };
+  assert.throws(
+    () => planImport(payload, { ...state, sponsors: [] }),
+    /existing sponsor/,
+  );
+  assert.throws(
+    () =>
+      planImport(payload, {
+        ...state,
+        sponsors: [previous, { ...previous, id: randomUUID() }],
+      }),
+    /ambiguous/,
+  );
+  for (const fields of [
+    {},
+    { notesAppend: "" },
+    { notesArAppend: "  " },
+    { notesAppend: null },
+    { notesAppend: "x".repeat(3001) },
+    { notesArAppend: "x".repeat(3001) },
+    { notesAppend: "Fixture note.", value: 0 },
+    { notesAppend: "Fixture note.", packageId: randomUUID() },
+    { notesAppend: "Fixture note.", approval: "Approved" },
+    { notesAppend: "Fixture note.", create: true },
+    { notesAppend: "Fixture note.", logo: logo() },
+  ])
+    assert.throws(
+      () =>
+        validatePayload(
+          {
+            ...input,
+            sponsors: [{ name: previous.data.name, ...fields }],
+          },
+          projectRef,
+        ),
+      /schema/,
+    );
+  for (const [field, append] of [
+    ["notes", "notesAppend"],
+    ["notesAr", "notesArAppend"],
+  ]) {
+    const full = structuredClone(previous);
+    full.data[field] = "x".repeat(3000);
+    const before = structuredClone(full);
+    const overflowing = validatePayload(
+      {
+        ...input,
+        sponsors: [
+          { name: previous.data.name, [append]: "Additional fixture note." },
+        ],
+      },
+      projectRef,
+    );
+    assert.throws(
+      () =>
+        planImport(overflowing, {
+          ...state,
+          sponsors: [full],
+        }),
+      /3000/,
+    );
+    assert.deepEqual(full, before);
+  }
+});

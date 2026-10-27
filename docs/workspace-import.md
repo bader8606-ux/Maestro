@@ -202,6 +202,14 @@ A retry with the same operation ID and unchanged payload uses the committed
 replay marker before planning. A new operation still requires its named source;
 the importer does not assume that an existing target belongs to a missing source.
 
+For a notes-only update, use `{ name, notesAppend?, notesArAppend? }` with at
+least one nonempty note. The sponsor must already exist unambiguously. Notes
+append idempotently in their respective language, preserving all other record
+fields, package associations and files, including an in-kind sponsor's null
+value. Combined notes exceeding 3,000 characters fail without truncation. Record
+only the communication status actually supplied by the owner; a sent-email note
+does not assert delivery or reading and does not send an email.
+
 For an explicitly authorized replacement of an existing sponsor's terms, a
 payload entry may use `name` and `update` with `value`, the complete bilingual
 `benefits` list, and `notesAppend`. It requires an existing, unambiguous sponsor;
